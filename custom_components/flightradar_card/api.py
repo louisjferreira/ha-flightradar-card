@@ -1,122 +1,219 @@
 from __future__ import annotations
 
-import asyncio
+import math
 import time
 from typing import Any
 
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-PROVIDERS = (("ADSB.lol", "https://api.adsb.lol/v2", "point"),("Airplanes.live", "https://api.airplanes.live/v2", "point"),("ADSB.fi", "https://opendata.adsb.fi/api/v2", "adsbfi"))
-ROUTE_PROVIDERS = ("https://api.adsb.lol/api/0/routeset", "https://adsb.im/api/0/routeset")
-PHOTO_URL = "https://api.planespotters.net/pub/photos/hex/{}"
-USER_AGENT = "HomeAssistant-FlightRadar-Card/0.9.2"
-_aircraft_cache: dict[str, tuple[float, dict[str, Any]]] = {}
-_route_cache: dict[str, tuple[float, dict[str, Any]]] = {}
-_photo_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+from .const import DOMAIN
+
+FR24_BASE = "https://fr24api.flightradar24.com/api"
+USER_AGENT = "HomeAssistant-FlightRadar-Card/0.9.3"
+_cache: dict[str, tuple[float, Any]] = {}
 
 
-def _clean_aircraft(item: dict[str, Any]) -> dict[str, Any]:
-    return {"hex":str(item.get("hex") or item.get("icao24") or "").upper(),"flight":str(item.get("flight") or item.get("callsign") or "").strip(),"registration":item.get("r") or item.get("registration"),"type":item.get("t") or item.get("type") or item.get("desc"),"description":item.get("desc") or item.get("description"),"lat":item.get("lat") if item.get("lat") is not None else item.get("latitude"),"lon":item.get("lon") if item.get("lon") is not None else item.get("longitude"),"altitude":item.get("alt_baro",item.get("alt_geom",item.get("altitude"))),"speed_knots":item.get("gs",item.get("ground_speed")),"ias_knots":item.get("ias"),"tas_knots":item.get("tas"),"mach":item.get("mach"),"vertical_rate":item.get("baro_rate",item.get("geom_rate")),"track":item.get("track",item.get("true_heading",item.get("heading"))),"heading":item.get("true_heading",item.get("mag_heading")),"squawk":item.get("squawk"),"emergency":item.get("emergency"),"category":item.get("category"),"on_ground":item.get("alt_baro")=="ground" or item.get("on_ground") is True,"seen":item.get("seen",item.get("seen_pos"))}
+def _token(hass) -> str | None:
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if not entries:
+        return None
+    return entries[0].data.get("api_token")
 
 
-async def _get_json(hass,url:str)->dict[str,Any]:
-    session=async_get_clientsession(hass)
-    async with session.get(url,timeout=12,headers={"Accept":"application/json","User-Agent":USER_AGENT}) as response:
-        response.raise_for_status();return await response.json(content_type=None)
+def _headers(token: str) -> dict[str, str]:
+    return {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}",
+        "Accept-Version": "v1",
+        "User-Agent": USER_AGENT,
+    }
 
 
-async def _post_json(hass,url:str,payload:dict[str,Any])->Any:
-    session=async_get_clientsession(hass)
-    async with session.post(url,json=payload,timeout=12,headers={"Accept":"application/json","User-Agent":USER_AGENT}) as response:
-        response.raise_for_status();return await response.json(content_type=None)
+async def _get(hass, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    token = _token(hass)
+    if not token:
+        raise RuntimeError("FlightRadar24 API token is not configured. Open Settings > Devices & services > FlightRadar Card > Configure.")
+    session = async_get_clientsession(hass)
+    async with session.get(f"{FR24_BASE}{path}", params=params or {}, headers=_headers(token), timeout=15) as response:
+        if response.status == 401:
+            raise RuntimeError("FlightRadar24 API token is invalid or expired.")
+        if response.status == 402:
+            raise RuntimeError("FlightRadar24 API credits are exhausted.")
+        if response.status == 403:
+            raise RuntimeError("FlightRadar24 API access is not permitted for this token or endpoint.")
+        response.raise_for_status()
+        return await response.json(content_type=None)
 
 
-def _aircraft_from_response(data:dict[str,Any],provider_type:str)->list[dict[str,Any]]:
-    items=data.get("aircraft",data.get("ac",[])) if provider_type=="adsbfi" else data.get("ac",data.get("aircraft",[]))
-    return [_clean_aircraft(i) for i in items if isinstance(i,dict)]
+def _bounds(lat: float, lon: float, radius_nm: int) -> str:
+    lat_delta = radius_nm / 60.0
+    lon_delta = radius_nm / max(60.0 * math.cos(math.radians(lat)), 1.0)
+    north = min(90.0, lat + lat_delta)
+    south = max(-90.0, lat - lat_delta)
+    west = lon - lon_delta
+    east = lon + lon_delta
+    return f"{north:.5f},{south:.5f},{west:.5f},{east:.5f}"
 
 
-def _merge_aircraft(items:list[dict[str,Any]])->list[dict[str,Any]]:
-    merged={}
-    for item in items:
-        key=item.get("hex") or item.get("registration") or item.get("flight")
-        if not key: continue
-        if key not in merged: merged[key]=dict(item); continue
-        for field,value in item.items():
-            if value not in (None,"") and merged[key].get(field) in (None,""): merged[key][field]=value
-    return list(merged.values())
+def _clean(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "fr24_id": item.get("fr24_id"),
+        "hex": str(item.get("hex") or "").upper() or None,
+        "flight": item.get("flight"),
+        "callsign": item.get("callsign"),
+        "registration": item.get("reg"),
+        "type": item.get("type"),
+        "airline": item.get("operated_as") or item.get("painted_as"),
+        "lat": item.get("lat"),
+        "lon": item.get("lon"),
+        "altitude": item.get("alt"),
+        "speed_knots": item.get("gspeed"),
+        "vertical_rate": item.get("vspeed"),
+        "track": item.get("track"),
+        "heading": item.get("track"),
+        "squawk": item.get("squawk"),
+        "origin": item.get("orig_iata") or item.get("orig_icao"),
+        "destination": item.get("dest_iata") or item.get("dest_icao"),
+        "origin_icao": item.get("orig_icao"),
+        "destination_icao": item.get("dest_icao"),
+        "eta": item.get("eta"),
+        "source": item.get("source"),
+        "category": item.get("category"),
+        "on_ground": item.get("alt") == 0,
+        "timestamp": item.get("timestamp"),
+    }
 
 
-async def _enrich_routes(hass,aircraft:list[dict[str,Any]])->None:
-    candidates=[f for f in aircraft if f.get("flight") and f.get("lat") is not None and f.get("lon") is not None][:50]
-    fresh=[];now=time.monotonic()
-    for f in candidates:
-        callsign=str(f["flight"]).strip().upper();cached=_route_cache.get(callsign)
-        if cached and now-cached[0]<600:f.update(cached[1])
-        else:fresh.append(f)
-    if not fresh:return
-    payload={"planes":[{"callsign":str(f["flight"]).strip(),"lat":float(f["lat"]),"lng":float(f["lon"])} for f in fresh]}
-    data=None
-    for endpoint in ROUTE_PROVIDERS:
+def _data(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return [_clean(x) for x in payload.get("data", []) if isinstance(x, dict)]
+
+
+async def get_aircraft(hass, latitude: float, longitude: float, radius: int) -> dict[str, Any]:
+    radius = max(10, min(250, int(radius)))
+    cache_key = f"light:{latitude:.4f}:{longitude:.4f}:{radius}"
+    cached = _cache.get(cache_key)
+    if cached and time.monotonic() - cached[0] < 3:
+        return cached[1]
+
+    data = await _get(
+        hass,
+        "/live/flight-positions/light",
+        {"bounds": _bounds(latitude, longitude, radius), "limit": 20},
+    )
+    aircraft = _data(data)
+    result = {
+        "aircraft": aircraft,
+        "provider": "FlightRadar24",
+        "timestamp": time.time(),
+    }
+    _cache[cache_key] = (time.monotonic(), result)
+    return result
+
+
+async def _full_search(hass, query: str) -> list[dict[str, Any]]:
+    # FR24 live/full supports callsign, registration and flight filters.
+    attempts = (
+        {"callsigns": query, "limit": 20},
+        {"registrations": query, "limit": 20},
+        {"flights": query, "limit": 20},
+    )
+    for params in attempts:
         try:
-            data=await _post_json(hass,endpoint,payload)
-            if isinstance(data,list):break
-        except Exception:continue
-    if not isinstance(data,list):return
-    by_call={str(row.get("callsign","")).strip().upper():row for row in data if isinstance(row,dict)}
-    for f in fresh:
-        route=by_call.get(str(f["flight"]).strip().upper())
-        if not route:continue
-        icao_route=str(route.get("airport_codes") or "")
-        iata_route=str(route.get("_airport_codes_iata") or "")
-        icao_codes=icao_route.split("-") if icao_route else []
-        iata_codes=iata_route.split("-") if iata_route else []
-        origin=iata_codes[0] if iata_codes else (icao_codes[0] if icao_codes else None)
-        destination=iata_codes[-1] if iata_codes else (icao_codes[-1] if icao_codes else None)
-        info={"airline_code":route.get("airline_code"),"route":iata_route or icao_route,"origin":origin,"destination":destination,"origin_icao":icao_codes[0] if icao_codes else None,"destination_icao":icao_codes[-1] if icao_codes else None,"route_plausible":route.get("plausible")}
-        _route_cache[str(f["flight"]).strip().upper()]=(now,info);f.update(info)
+            data = await _get(hass, "/live/flight-positions/full", params)
+            flights = _data(data)
+            if flights:
+                return flights
+        except Exception:
+            continue
+    return []
 
 
-async def get_aircraft(hass,latitude:float,longitude:float,radius:int)->dict[str,Any]:
-    radius=max(10,min(250,int(radius)));cache_key=f"point:{latitude:.4f}:{longitude:.4f}:{radius}";cached=_aircraft_cache.get(cache_key)
-    if cached and time.monotonic()-cached[0]<5:return cached[1]
-    async def fetch(name,base,ptype):
-        try:
-            url=f"{base}/lat/{latitude}/lon/{longitude}/dist/{radius}" if ptype=="adsbfi" else f"{base}/point/{latitude}/{longitude}/{radius}"
-            return name,_aircraft_from_response(await _get_json(hass,url),ptype),None
-        except Exception as err:return name,[],err
-    responses=await asyncio.gather(*(fetch(*p) for p in PROVIDERS));results=[];used=[];errors=[]
-    for name,aircraft,err in responses:
-        if aircraft:used.append(name);results.extend(aircraft)
-        elif err:errors.append(f"{name}: {type(err).__name__}")
-    aircraft=_merge_aircraft(results);await _enrich_routes(hass,aircraft)
-    result={"aircraft":aircraft,"provider":" + ".join(used),"timestamp":time.time()}
-    if not aircraft and errors:result["error"]="No ADS-B aircraft returned; "+", ".join(errors)
-    _aircraft_cache[cache_key]=(time.monotonic(),result);return result
+async def search_aircraft(hass, query: str) -> dict[str, Any]:
+    query = query.strip().upper()
+    if not query:
+        return {"aircraft": [], "provider": "FlightRadar24"}
+    flights = await _full_search(hass, query)
+    return {
+        "aircraft": flights,
+        "provider": "FlightRadar24",
+        "timestamp": time.time(),
+        **({} if flights else {"error": f"No live FlightRadar24 aircraft found for {query}"}),
+    }
 
 
-async def search_aircraft(hass,query:str)->dict[str,Any]:
-    query=query.strip().upper()
-    if not query:return{"aircraft":[],"provider":None}
-    for name,base,_ in PROVIDERS[:2]:
-        for kind in ("callsign","reg","hex"):
-            try:
-                aircraft=_aircraft_from_response(await _get_json(hass,f"{base}/{kind}/{query}"),"point")
-                if aircraft:
-                    await _enrich_routes(hass,aircraft);return{"aircraft":aircraft,"provider":name,"timestamp":time.time()}
-            except Exception:continue
-    return{"aircraft":[],"provider":None,"error":f"No live aircraft found for {query}"}
+async def get_aircraft_detail(hass, flight: dict[str, Any]) -> dict[str, Any]:
+    query = str(flight.get("callsign") or flight.get("flight") or flight.get("registration") or "").strip().upper()
+    if not query:
+        return flight
+    flights = await _full_search(hass, query)
+    if not flights:
+        return flight
+    target = flight.get("fr24_id") or flight.get("hex") or flight.get("registration")
+    for item in flights:
+        if target and target in (item.get("fr24_id"), item.get("hex"), item.get("registration")):
+            return item
+    return flights[0]
 
 
-async def get_aircraft_photo(hass,hex_code:str)->dict[str,Any]:
-    hex_code=str(hex_code or "").strip().upper()
-    if not hex_code:return{"photo":None}
-    cached=_photo_cache.get(hex_code)
-    if cached and time.monotonic()-cached[0]<3600:return cached[1]
+async def get_airport_activity(hass, airport: str) -> dict[str, Any]:
+    airport = airport.strip().upper()
+    cache_key = f"activity:{airport}"
+    cached = _cache.get(cache_key)
+    if cached and time.monotonic() - cached[0] < 180:
+        return cached[1]
+
+    arrivals = await _get(
+        hass,
+        "/live/flight-positions/full",
+        {"airports": f"inbound:{airport}", "limit": 20},
+    )
+    departures = await _get(
+        hass,
+        "/live/flight-positions/full",
+        {"airports": f"outbound:{airport}", "limit": 20},
+    )
+    result = {
+        "airport": airport,
+        "arrivals": _data(arrivals),
+        "departures": _data(departures),
+        "provider": "FlightRadar24",
+        "timestamp": time.time(),
+    }
+    _cache[cache_key] = (time.monotonic(), result)
+    return result
+
+
+async def get_aircraft_photo(hass, hex_code: str) -> dict[str, Any]:
+    # Aircraft photographs remain supplied by Planespotters; FR24 API does not
+    # currently expose aircraft photographs in its live position response.
+    hex_code = str(hex_code or "").strip().upper()
+    if not hex_code:
+        return {"photo": None}
+    cache_key = f"photo:{hex_code}"
+    cached = _cache.get(cache_key)
+    if cached and time.monotonic() - cached[0] < 3600:
+        return cached[1]
     try:
-        data=await _get_json(hass,PHOTO_URL.format(hex_code));photos=data.get("photos",[]) if isinstance(data,dict) else []
+        session = async_get_clientsession(hass)
+        async with session.get(
+            f"https://api.planespotters.net/pub/photos/hex/{hex_code}",
+            headers={"Accept": "application/json", "User-Agent": USER_AGENT},
+            timeout=10,
+        ) as response:
+            response.raise_for_status()
+            data = await response.json(content_type=None)
+        photos = data.get("photos", []) if isinstance(data, dict) else []
+        photo = None
         if photos:
-            p=photos[0];thumb=p.get("thumbnail",{}) or {};photo={"src":thumb.get("src") or p.get("src"),"link":p.get("link"),"photographer":p.get("photographer")}
-        else:photo=None
-    except Exception:photo=None
-    result={"photo":photo};_photo_cache[hex_code]=(time.monotonic(),result);return result
+            item = photos[0]
+            thumb = item.get("thumbnail", {}) or {}
+            photo = {
+                "src": thumb.get("src") or item.get("src"),
+                "link": item.get("link"),
+                "photographer": item.get("photographer"),
+            }
+    except Exception:
+        photo = None
+    result = {"photo": photo}
+    _cache[cache_key] = (time.monotonic(), result)
+    return result
