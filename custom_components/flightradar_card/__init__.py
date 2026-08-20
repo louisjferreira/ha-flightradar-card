@@ -1,0 +1,67 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import voluptuous as vol
+from homeassistant.components import websocket_api
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.typing import ConfigType
+
+from .api import get_aircraft, search_aircraft
+from .const import CARD_URL, DOMAIN
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Set up the FlightRadar Card integration."""
+    frontend_path = Path(__file__).parent / "frontend"
+    card_path = frontend_path / "flightradar-card.js"
+    if card_path.exists():
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(CARD_URL, str(card_path), cache_headers=False)]
+        )
+        add_extra_js_url(hass, CARD_URL)
+
+    websocket_api.async_register_command(hass, websocket_get_aircraft)
+    websocket_api.async_register_command(hass, websocket_search_aircraft)
+    return True
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "flightradar_card/get_aircraft",
+        vol.Required("latitude"): vol.Coerce(float),
+        vol.Required("longitude"): vol.Coerce(float),
+        vol.Optional("radius", default=250): vol.All(vol.Coerce(int), vol.Range(min=10, max=250)),
+    }
+)
+@websocket_api.async_response
+async def websocket_get_aircraft(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Return live aircraft around a point."""
+    try:
+        result = await get_aircraft(
+            hass,
+            msg["latitude"],
+            msg["longitude"],
+            msg["radius"],
+        )
+        connection.send_result(msg["id"], result)
+    except Exception as err:  # noqa: BLE001
+        connection.send_error(msg["id"], "adsb_unavailable", str(err))
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "flightradar_card/search",
+        vol.Required("query"): vol.Coerce(str),
+    }
+)
+@websocket_api.async_response
+async def websocket_search_aircraft(hass: HomeAssistant, connection, msg: dict) -> None:
+    """Search for a live aircraft."""
+    try:
+        result = await search_aircraft(hass, msg["query"])
+        connection.send_result(msg["id"], result)
+    except Exception as err:  # noqa: BLE001
+        connection.send_error(msg["id"], "search_failed", str(err))
