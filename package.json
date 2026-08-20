@@ -1,0 +1,7 @@
+{
+  "name": "ha-flightradar-card",
+  "version": "0.1.0",
+  "description": "A FlightRadar-style Home Assistant Lovelace card with a live map, selected-aircraft details, and airport movements.",
+  "license": "MIT",
+  "private": false
+}
