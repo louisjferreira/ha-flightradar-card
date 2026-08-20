@@ -17,12 +17,22 @@ from .const import CARD_URL, DOMAIN
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the FlightRadar Card integration."""
     frontend_path = Path(__file__).parent / "frontend"
+    loader_path = frontend_path / "card-loader.js"
     card_path = frontend_path / "flightradar-card.js"
-    if card_path.exists():
-        await hass.http.async_register_static_paths(
-            [StaticPathConfig(CARD_URL.split("?", 1)[0], str(card_path), cache_headers=False)]
+
+    static_paths = []
+    if loader_path.exists():
+        static_paths.append(
+            StaticPathConfig("/flightradar_card/card-loader.js", str(loader_path), cache_headers=False)
         )
-        # Load the card as a Lovelace module on every frontend load.
+    if card_path.exists():
+        static_paths.append(
+            StaticPathConfig("/flightradar_card/flightradar-card.js", str(card_path), cache_headers=False)
+        )
+
+    if static_paths:
+        await hass.http.async_register_static_paths(static_paths)
+        # Load the loader as a Lovelace module on every frontend load.
         # The version query string in CARD_URL deliberately busts the HA frontend cache.
         add_extra_js_url(hass, CARD_URL)
 
