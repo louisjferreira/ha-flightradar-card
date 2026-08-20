@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "FlightRadar Card",
+        "description": "Enable the FlightRadar Card live-data backend. No API key is required."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "FlightRadar Card is already configured."
+    }
+  }
+}
