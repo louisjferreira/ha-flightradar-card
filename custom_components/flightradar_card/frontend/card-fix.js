@@ -1,9 +1,11 @@
-/* FlightRadar Card editor compatibility fix. */
+/* FlightRadar Card compatibility fixes for Home Assistant. */
 (function () {
   const boot = () => {
     const Card = customElements.get("flightradar-card");
     if (!Card || Card.__FLIGHTRADAR_DEFAULTS_PATCHED__) return;
 
+    // Supply sensible defaults in Home Assistant's graphical editor without
+    // replacing the card's own rendering or resize handling.
     const originalForm = Card.getConfigForm;
     if (originalForm) {
       const original = originalForm.bind(Card);
