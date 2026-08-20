@@ -3,7 +3,7 @@
  * UI prototype - live flight data will be added in a later milestone.
  */
 
-const CARD_VERSION = "0.3.0";
+const CARD_VERSION = "0.4.0";
 const TILE_SIZE = 256;
 const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 
@@ -31,11 +31,13 @@ class FlightradarCard extends HTMLElement {
 
   _render() {
     const airport = this._airport();
-    const height = this._config.appearance?.height || "min(72vh, 720px)";
+    const appearance = this._config.appearance || {};
+    const fullScreen = appearance.full_screen !== false;
+    const height = appearance.height || (fullScreen ? "calc(100dvh - 40px - var(--safe-area-inset-top, 0px))" : "min(72vh, 720px)");
     this.shadowRoot.innerHTML = `
       <style>
         :host { display:block; width:100%; color:#fff; font-family:var(--primary-font-family,Arial,sans-serif); } * { box-sizing:border-box; }
-        .card { position:relative; overflow:hidden; width:100%; height:${height}; min-height:420px; border-radius:18px; background:#111820; border:1px solid rgba(255,255,255,.12); box-shadow:0 10px 30px rgba(0,0,0,.25); }
+        .card { position:relative; overflow:hidden; width:100%; height:${height}; min-height:420px; border-radius:${fullScreen ? "0" : "18px"}; background:#111820; border:${fullScreen ? "0" : "1px solid rgba(255,255,255,.12)"}; box-shadow:${fullScreen ? "none" : "0 10px 30px rgba(0,0,0,.25)"}; }
         .map { position:absolute; inset:0; overflow:hidden; background:#18232b; } .tile-layer { position:absolute; inset:0; overflow:hidden; background:#26343d; }
         .tile { position:absolute; width:${TILE_SIZE}px; height:${TILE_SIZE}px; max-width:none; user-select:none; pointer-events:none; filter:saturate(.72) brightness(.72); }
         .shade { position:absolute; inset:0; background:linear-gradient(180deg,rgba(4,10,15,.18),rgba(4,10,15,.05) 45%,rgba(4,10,15,.45)); pointer-events:none; }
@@ -60,7 +62,7 @@ class FlightradarCard extends HTMLElement {
         .footer { position:absolute; left:14px; right:14px; bottom:12px; display:flex; justify-content:space-between; align-items:center; pointer-events:none; z-index:12; } .badge { background:rgba(8,14,20,.82); backdrop-filter:blur(10px); border:1px solid rgba(255,255,255,.12); border-radius:9px; padding:7px 9px; font-size:10px; color:#dce3e8; }
         .attribution { position:absolute; right:5px; bottom:2px; z-index:13; font-size:7px; color:rgba(255,255,255,.6); pointer-events:none; }
         @media(max-width:850px) { .selected { width:min(340px,calc(100% - 28px)); } .movements { width:min(310px,calc(100% - 28px)); } }
-        @media(max-width:650px) { .card { min-height:600px; height:auto; } .selected { width:calc(100% - 28px); } .photo-wrap { height:115px; } .movements { top:auto; bottom:54px; width:calc(100% - 28px); max-height:160px; } .rows { max-height:105px; } .footer { bottom:10px; } .footer .badge:first-child { max-width:55%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } }
+        @media(max-width:650px) { .card { min-height:0; } .selected { width:calc(100% - 28px); } .photo-wrap { height:115px; } .movements { top:auto; bottom:54px; width:calc(100% - 28px); max-height:160px; } .rows { max-height:105px; } .footer { bottom:10px; } .footer .badge:first-child { max-width:55%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } }
       </style>
       <ha-card class="card">
         <div class="map"><div class="tile-layer"></div><div class="map-grid"></div><div class="shade"></div><div class="aircraft-layer"></div><div class="airport-marker"><div class="airport-dot"></div><div class="airport-label">${airport.code} · ${airport.city.toUpperCase()}</div></div></div>
