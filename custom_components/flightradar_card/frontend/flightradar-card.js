@@ -1,6 +1,6 @@
 window.customCards = window.customCards || [];
 
-const CARD_VERSION = "0.8.5";
+const CARD_VERSION = "0.8.8";
 const TILE = 256;
 const OSM = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 
@@ -47,7 +47,8 @@ class FlightRadarCard extends HTMLElement {
     this._error = "";
     this._timer = null;
     this._preview = false;
-    this._resize = () => this._setHeight();
+    this._resize = () => this._handleResize();
+    this._mapResizeObserver = null;
   }
 
   static getStubConfig() {
@@ -60,8 +61,6 @@ class FlightRadarCard extends HTMLElement {
     };
   }
 
-  // Home Assistant 2026.x built-in graphical editor.
-  // Keep the form keys flat; setConfig() converts them to the nested runtime config.
   static getConfigForm() {
     return {
       schema: [
@@ -75,22 +74,10 @@ class FlightRadarCard extends HTMLElement {
             },
           },
         },
-        {
-          name: "radius_nm",
-          selector: { number: { min: 10, max: 250, step: 10, mode: "box" } },
-        },
-        {
-          name: "refresh_interval",
-          selector: { number: { min: 5, max: 120, step: 5, mode: "box" } },
-        },
-        {
-          name: "zoom",
-          selector: { number: { min: 3, max: 12, step: 1, mode: "box" } },
-        },
-        {
-          name: "full_screen",
-          selector: { boolean: {} },
-        },
+        { name: "radius_nm", selector: { number: { min: 10, max: 250, step: 10, mode: "box" } } },
+        { name: "refresh_interval", selector: { number: { min: 5, max: 120, step: 5, mode: "box" } } },
+        { name: "zoom", selector: { number: { min: 3, max: 12, step: 1, mode: "box" } } },
+        { name: "full_screen", selector: { boolean: {} } },
       ],
       computeLabel: (schema) => ({
         airport: "Tracked airport",
@@ -107,6 +94,7 @@ class FlightRadarCard extends HTMLElement {
 
   setConfig(config = {}) {
     this._stop();
+    this._disconnectMapObserver();
     const legacyRadius = config.live?.radius_nm ?? config.radius_nm ?? 250;
     const legacyZoom = config.map?.zoom ?? config.zoom ?? 7;
     const fullScreen = config.appearance?.full_screen ?? config.full_screen ?? true;
@@ -125,6 +113,8 @@ class FlightRadarCard extends HTMLElement {
     this._error = "";
     this._render();
     this._setHeight();
+    this._observeMapSize();
+    requestAnimationFrame(() => this._renderMapNow());
     if (!this._preview) this._start();
   }
 
@@ -135,6 +125,7 @@ class FlightRadarCard extends HTMLElement {
 
   disconnectedCallback() {
     this._stop();
+    this._disconnectMapObserver();
   }
 
   getCardSize() { return 7; }
@@ -155,6 +146,24 @@ class FlightRadarCard extends HTMLElement {
   _setHeight() {
     const card = this.shadowRoot.querySelector(".card");
     if (card) card.style.height = this._height();
+  }
+
+  _handleResize() {
+    this._setHeight();
+    requestAnimationFrame(() => this._renderMapNow());
+  }
+
+  _observeMapSize() {
+    const map = this.shadowRoot.querySelector(".map");
+    if (!map || !window.ResizeObserver) return;
+    this._disconnectMapObserver();
+    this._mapResizeObserver = new ResizeObserver(() => this._renderMapNow());
+    this._mapResizeObserver.observe(map);
+  }
+
+  _disconnectMapObserver() {
+    if (this._mapResizeObserver) this._mapResizeObserver.disconnect();
+    this._mapResizeObserver = null;
   }
 
   _start() {
@@ -180,12 +189,7 @@ class FlightRadarCard extends HTMLElement {
     this._render();
     try {
       const radius = Math.min(250, Math.max(10, Number(this._config.live.radius_nm) || 250));
-      const result = await this._hass.callWS({
-        type: "flightradar_card/get_aircraft",
-        latitude: airport.lat,
-        longitude: airport.lon,
-        radius,
-      });
+      const result = await this._hass.callWS({ type: "flightradar_card/get_aircraft", latitude: airport.lat, longitude: airport.lon, radius });
       this._flights = Array.isArray(result?.aircraft) ? result.aircraft : [];
       if (this._selected) {
         const selectedId = this._selected.hex || this._selected.icao24;
@@ -221,15 +225,16 @@ class FlightRadarCard extends HTMLElement {
 
   _render() {
     if (!this.shadowRoot) return;
+    this._disconnectMapObserver();
     const airport = this._airport();
     const aircraft = this._flights || [];
     const selected = this._selected;
 
     this.shadowRoot.innerHTML = `
       <style>
-        :host{display:block;width:100%}
-        .card{position:relative;width:100%;min-height:420px;overflow:hidden;border-radius:16px;background:#11161b;color:#f5f7fa;font-family:var(--primary-font-family,Arial,sans-serif)}
-        .map{position:absolute;inset:0;overflow:hidden;background:#b8c3c8}.map img{position:absolute;width:256px;height:256px}.overlay{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.24),rgba(0,0,0,.08) 45%,rgba(0,0,0,.34));pointer-events:none}
+        :host{display:block;width:100%;min-width:0}
+        .card{position:relative;width:100%;min-width:0;min-height:420px;overflow:hidden;border-radius:16px;background:#11161b;color:#f5f7fa;font-family:var(--primary-font-family,Arial,sans-serif)}
+        .map{position:absolute;inset:0;width:100%;height:100%;overflow:hidden;background:#b8c3c8}.map img{position:absolute;width:256px;height:256px;display:block}.overlay{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.24),rgba(0,0,0,.08) 45%,rgba(0,0,0,.34));pointer-events:none}
         .panel{position:absolute;z-index:10;background:rgba(17,22,27,.96);border:1px solid rgba(255,255,255,.12);box-shadow:0 10px 30px rgba(0,0,0,.35);border-radius:16px}
         .selected{top:12px;left:12px;width:min(300px,calc(100% - 24px));overflow:hidden}.traffic{top:12px;right:12px;width:min(360px,calc(100% - 24px));padding:12px}
         .search{position:absolute;z-index:20;top:12px;left:50%;transform:translateX(-50%);display:flex;gap:6px;width:min(420px,calc(100% - 24px));background:rgba(17,22,27,.96);padding:6px;border-radius:12px;border:1px solid rgba(255,255,255,.14)}
@@ -250,9 +255,10 @@ class FlightRadarCard extends HTMLElement {
         <div class="badge right">${this._preview ? '<span class="preview-label">PREVIEW</span>' : (aircraft.length ? `${aircraft.length} aircraft · ALL LIVE ADS-B` : 'Live ADS-B unavailable')}</div>
       </div>`;
 
-    this._renderMap(airport, aircraft, selected);
     this._renderSelected(selected);
     this._renderTraffic(airport, aircraft);
+    this._observeMapSize();
+    requestAnimationFrame(() => this._renderMapNow());
 
     this.shadowRoot.getElementById("search")?.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -260,10 +266,21 @@ class FlightRadarCard extends HTMLElement {
     });
   }
 
+  _renderMapNow() {
+    if (!this.shadowRoot) return;
+    this._renderMap(this._airport(), this._flights || [], this._selected);
+  }
+
   _renderMap(airport, aircraft, selected) {
     const map = this.shadowRoot.getElementById("map");
     if (!map) return;
     const rect = map.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return;
+
+    // Rebuild the tile layer from the CURRENT map dimensions. This is important
+    // because Home Assistant can resize a card after the custom element first renders.
+    map.replaceChildren();
+
     const zoom = Number(this._config.map?.zoom) || 7;
     const world = TILE * Math.pow(2, zoom);
     const project = (lat, lon) => {
