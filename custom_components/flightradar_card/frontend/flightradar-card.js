@@ -1,6 +1,6 @@
 window.customCards = window.customCards || [];
 
-const CARD_VERSION = "0.8.8";
+const CARD_VERSION = "0.8.9";
 const TILE = 256;
 const OSM = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 
@@ -255,6 +255,9 @@ class FlightRadarCard extends HTMLElement {
         <div class="badge right">${this._preview ? '<span class="preview-label">PREVIEW</span>' : (aircraft.length ? `${aircraft.length} aircraft · ALL LIVE ADS-B` : 'Live ADS-B unavailable')}</div>
       </div>`;
 
+    // Reapply the explicit card height after every render. Without this, clicking
+    // an aircraft rebuilds the shadow DOM and the card falls back to content height.
+    this._setHeight();
     this._renderSelected(selected);
     this._renderTraffic(airport, aircraft);
     this._observeMapSize();
@@ -276,9 +279,6 @@ class FlightRadarCard extends HTMLElement {
     if (!map) return;
     const rect = map.getBoundingClientRect();
     if (rect.width < 2 || rect.height < 2) return;
-
-    // Rebuild the tile layer from the CURRENT map dimensions. This is important
-    // because Home Assistant can resize a card after the custom element first renders.
     map.replaceChildren();
 
     const zoom = Number(this._config.map?.zoom) || 7;
