@@ -6,6 +6,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 
@@ -28,12 +29,24 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up FlightRadar Card from a config entry."""
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload FlightRadar Card from a config entry."""
+    return True
+
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "flightradar_card/get_aircraft",
         vol.Required("latitude"): vol.Coerce(float),
         vol.Required("longitude"): vol.Coerce(float),
-        vol.Optional("radius", default=250): vol.All(vol.Coerce(int), vol.Range(min=10, max=250)),
+        vol.Optional("radius", default=250): vol.All(
+            vol.Coerce(int), vol.Range(min=10, max=250)
+        ),
     }
 )
 @websocket_api.async_response
