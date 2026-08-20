@@ -3,7 +3,7 @@
   if (window.__FLIGHTRADAR_CARD_LOADED__) return;
   window.__FLIGHTRADAR_CARD_LOADED__ = true;
 
-  const version = "0.8.7";
+  const version = "0.8.8";
   const loadScript = async (path) => {
     const response = await fetch(`${path}?v=${version}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`FlightRadar Card HTTP ${response.status}`);
