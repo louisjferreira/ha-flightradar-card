@@ -24,13 +24,15 @@ A FlightRadar-style dashboard card for Home Assistant, designed around a full-sc
 
 ## Data source
 
-FlightRadar Card uses the **official FlightRadar24 API** as its live aviation data provider. The FR24 API provides real-time aircraft movement together with flight number, callsign, origin, destination, registration and aircraft type information. citeturn4search2
+FlightRadar Card uses the **official FlightRadar24 API** as its live aviation data provider. The FR24 API provides real-time aircraft movement together with flight number, callsign, origin, destination, registration and aircraft type information.
+
+Official documentation: https://fr24api.flightradar24.com/docs/endpoints/overview
 
 This replaces the earlier public ADS-B aggregation used during development. The public feeds were useful for proving the map and animation architecture, but their Zimbabwe coverage was not sufficiently close to the FlightRadar24 experience.
 
 ## FlightRadar24 API setup
 
-The FlightRadar24 API is a separate service from a normal FlightRadar24 website subscription. An active API subscription and API token are required. citeturn2search4turn2search5
+The FlightRadar24 API is a separate service from a normal FlightRadar24 website subscription. An active API subscription and API token are required.
 
 1. Create or sign in to a FlightRadar24 API account.
 2. Select an API subscription.
@@ -42,11 +44,11 @@ The FlightRadar24 API is a separate service from a normal FlightRadar24 website 
 
 The token is stored in the Home Assistant config entry and is **not included in the frontend or GitHub repository**.
 
-The current Explorer plan is intended for testing and private/hobby projects and currently provides 30,000 monthly credits, with a promotional allocation of 60,000 credits for qualifying subscriptions during the current promotion period. citeturn2search0turn2search2
+The current Explorer plan is intended for testing and private/hobby projects and currently provides 30,000 monthly credits, with a promotional allocation of 60,000 credits for qualifying subscriptions during the current promotion period.
 
 ## Credit usage
 
-FlightRadar24 charges by returned flight rather than simply by API request. Live Flight Positions Full currently costs 8 credits per returned flight; the card therefore uses a conservative default radius and refresh interval. citeturn5search1
+FlightRadar24 charges by returned flight rather than simply by API request. Live Flight Positions Full currently costs 8 credits per returned flight; the card therefore uses a conservative default radius and refresh interval.
 
 The graphical defaults are currently:
 
@@ -119,7 +121,7 @@ The backend provides dedicated FR24 live airport filtering for:
 - **ARRIVALS** — live aircraft inbound to the selected airport
 - **DEPARTURES** — live aircraft outbound from the selected airport
 
-This is live operational traffic rather than a fabricated schedule. The FR24 live/full endpoint explicitly provides origin and destination fields, making it substantially more reliable than the previous route-enrichment approach. citeturn1search0turn0search5
+This is live operational traffic rather than a fabricated schedule. The FR24 live/full endpoint provides origin and destination fields, making it substantially more reliable than the previous route-enrichment approach.
 
 ## Map behaviour
 
@@ -150,11 +152,11 @@ A local receiver could eventually provide very high-frequency local updates whil
 
 ## Current limitations
 
-- FlightRadar24 API coverage and data are not guaranteed to be identical to the consumer FlightRadar24 website; FR24 states that the website and API are separate products with overlapping but not identical datasets. citeturn4search3
+- FlightRadar24 API coverage and data are not guaranteed to be identical to the consumer FlightRadar24 website; FR24 states that the website and API are separate products with overlapping but not identical datasets.
 - API credits are consumed according to returned entities.
 - Aircraft photographs are unavailable for some aircraft.
 - Scheduled gate, terminal and timetable information is not currently part of the live aircraft layer.
-- FR24 API data retrieved by the integration is transiently cached only in memory; FR24's API storage rules limit retained API data to 30 days. citeturn0search0
+- FR24 API data retrieved by the integration is transiently cached only in memory; FR24's API storage rules limit retained API data to 30 days.
 
 ## Roadmap
 
