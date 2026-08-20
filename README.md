@@ -7,11 +7,15 @@ A FlightRadar-style dashboard card for Home Assistant, designed around a full-sc
 ## Features
 
 - 🗺️ Full-screen responsive map centred on a selected airport
-- ✈️ Shows **all ADS-B aircraft within the configured radius**, not only aircraft travelling to or from the selected airport
-- 🎯 Click any aircraft to select it without moving or resizing the map
+- ✈️ Shows **all ADS-B aircraft within the configured radius**
+- 🎯 Click any aircraft without moving or resizing the map
 - 🛰️ Smooth aircraft movement between live ADS-B updates
-- 🔎 Search by flight callsign, registration, or ICAO hex address
-- 📡 Live aircraft data through the Home Assistant backend
+- 🔎 Search by callsign, registration, or ICAO hex address
+- 📡 Merged live data from multiple public ADS-B networks
+- 📷 Aircraft photographs from Planespotters.net when available
+- 📋 Expanded aircraft information including registration, ICAO24, heading, vertical rate, squawk and emergency state
+- 🛫 Live route enrichment with origin and destination airport codes when available
+- 🛬 Airport Activity panel with **ALL / ARRIVALS / DEPARTURES** views
 - 🛫 Configurable tracked airport
 - 📏 Configurable live-aircraft radius
 - 🔄 Configurable refresh interval
@@ -36,8 +40,6 @@ The integration registers the Lovelace card frontend automatically. A manual Lov
 
 Add a new dashboard card and search for **FlightRadar Card**.
 
-The graphical editor provides:
-
 | Setting | Description | Default |
 |---|---|---:|
 | **Tracked airport** | Airport used as the map centre and live traffic reference point | HRE |
@@ -57,56 +59,62 @@ zoom: 7
 full_screen: true
 ```
 
-Older nested configurations are also accepted for compatibility:
+Older nested configurations are also accepted for compatibility.
 
-```yaml
-type: custom:flightradar-card
-airport: HRE
-map:
-  zoom: 7
-live:
-  radius_nm: 250
-refresh_interval: 10
-appearance:
-  full_screen: true
-```
+## Live aircraft data
+
+Home Assistant queries several public ADS-B networks and merges their results by aircraft identifier. This is important in areas such as Zimbabwe where coverage can differ significantly between networks.
+
+Current feeds:
+
+- ADSB.lol
+- Airplanes.live
+- ADSB.fi
+
+The card does **not** claim that these feeds are identical to FlightRadar24. ADS-B coverage is receiver-dependent, and FlightRadar24 uses its own network and data processing. The goal is to provide the best openly accessible live ADS-B picture available to the card.
+
+## Aircraft details
+
+Selecting an aircraft now provides a richer identity panel with:
+
+- Callsign
+- Airline where identifiable
+- Aircraft type
+- Registration
+- ICAO24 hex
+- Origin and destination when route enrichment is available
+- Altitude
+- Ground speed
+- Heading
+- Vertical rate
+- Squawk
+- Ground/airborne status
+- Emergency status
+- Aircraft photograph when available
+
+Aircraft photographs are retrieved through the Planespotters.net public API and displayed with photographer attribution when supplied.
+
+## Airport Activity
+
+The right-hand panel is now explicitly an **Airport Activity** panel rather than a generic list of nearby aircraft.
+
+It provides three views:
+
+- **ALL** — live aircraft with a route matching the selected airport
+- **ARRIVALS** — aircraft whose enriched route destination matches the selected airport
+- **DEPARTURES** — aircraft whose enriched route origin matches the selected airport
+
+Route information comes from the free ADSB.lol/adsb.im route enrichment service. It is crowdsourced route information rather than an official airport schedule, so the card deliberately labels the activity as live route-matched traffic rather than scheduled arrivals/departures.
 
 ## Map behaviour
 
-The selected airport is used to centre the map and define the ADS-B search area.
+The selected airport centres the map and defines the ADS-B search area. The airport does not filter the aircraft shown on the map.
 
-**The airport does not filter the aircraft shown on the map.** For example, with HRE selected and a 250 NM radius, every aircraft returned by the ADS-B provider inside that area can be displayed, regardless of its scheduled origin or destination.
-
-Clicking an aircraft highlights it and updates the **Selected Aircraft** panel. Selecting an aircraft does not rebuild the map, so the map remains in place.
-
-Live position updates are animated between provider refreshes rather than appearing as repeated jumps. The animation duration follows the configured refresh interval.
-
-## Flight search
-
-The search field accepts:
-
-- Flight callsign, such as `SAA218`
-- Aircraft registration
-- ICAO 24-bit hex address
-
-A successful live search selects the aircraft in the card.
-
-## Live ADS-B architecture
-
-The browser does not directly query the third-party ADS-B providers. Home Assistant performs the provider requests and the card receives the results through Home Assistant's authenticated WebSocket API.
-
-Current providers:
-
-1. Airplanes.live
-2. ADSB.lol
-
-The backend can fall back between providers.
+Selecting an aircraft does not rebuild the map, so the map remains completely stable. Live position updates are animated between provider refreshes rather than appearing as repeated jumps.
 
 ## Future local ADS-B receiver
 
-The backend is deliberately provider-based so a future local receiver using software such as readsb/tar1090 can be added without redesigning the card.
-
-The planned architecture is:
+The backend is provider-based so a future local receiver using readsb/tar1090 can be added without redesigning the card.
 
 ```text
 Local ADS-B receiver
@@ -118,33 +126,36 @@ Local ADS-B receiver
      Map + UI
 ```
 
-This will allow the card to use aircraft received directly at home rather than relying solely on public Internet ADS-B feeds.
-
 ## Current limitations
 
-- Public ADS-B coverage depends on the upstream providers.
-- Aircraft photos and detailed flight schedules are not yet part of the live backend.
-- The arrivals/departures board is planned as a separate data source from the ADS-B traffic layer.
+- Public ADS-B coverage varies by region and provider.
+- Free route enrichment is useful but is not an authoritative flight schedule.
+- Aircraft photographs are unavailable for some registrations/hex codes.
+- A true scheduled airport departures/arrivals board will require a dedicated flight-status/schedule data source.
 
 ## Roadmap
 
 - [x] Live ADS-B aircraft positions
+- [x] Multi-provider ADS-B merging
 - [x] Smooth live position animation
 - [x] Flight/registration/ICAO search
 - [x] Selected aircraft tracking
+- [x] Aircraft details
+- [x] Aircraft photographs
+- [x] Live route enrichment
+- [x] Airport arrivals/departures filtering
 - [x] Full-screen responsive map
 - [x] Configurable airport
 - [x] All-aircraft map traffic
 - [x] Graphical card configuration
-- [ ] Real airport arrivals/departures board
-- [ ] Aircraft-specific photographs
+- [ ] True scheduled airport arrivals/departures board
 - [ ] Expanded airport database
 - [ ] Local ADS-B receiver provider
-- [ ] Optional flight route display
+- [ ] Optional flight route line display
 
 ## Version
 
-**0.9.1**
+**0.9.2**
 
 ## License
 
