@@ -8,7 +8,7 @@
       const original = originalForm.bind(Card);
       Card.getConfigForm = function () {
         const form = original();
-        const defaults = { airport: "HRE", radius_nm: 250, refresh_interval: 10, zoom: 7, full_screen: true };
+        const defaults = { airport: "HRE", radius_nm: 150, refresh_interval: 60, zoom: 7, full_screen: true };
         for (const item of form.schema || []) if (Object.prototype.hasOwnProperty.call(defaults, item.name)) item.default = defaults[item.name];
         return form;
       };
