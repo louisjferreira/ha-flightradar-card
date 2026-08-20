@@ -1,6 +1,6 @@
 window.customCards = window.customCards || [];
 
-const CARD_VERSION = "0.8.9";
+const CARD_VERSION = "0.9.0";
 const TILE = 256;
 const OSM = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 
@@ -45,6 +45,7 @@ class FlightRadarCard extends HTMLElement {
     this._selected = null;
     this._loading = false;
     this._error = "";
+    this._provider = null;
     this._timer = null;
     this._preview = false;
     this._resize = () => this._handleResize();
@@ -56,7 +57,7 @@ class FlightRadarCard extends HTMLElement {
       airport: "HRE",
       map: { zoom: 7 },
       appearance: { full_screen: true },
-      live: { enabled: false, radius_nm: 250 },
+      live: { enabled: true, radius_nm: 250 },
       refresh_interval: 15,
     };
   }
@@ -111,6 +112,7 @@ class FlightRadarCard extends HTMLElement {
     this._flights = this._preview ? PREVIEW_AIRCRAFT : [];
     this._selected = this._preview ? PREVIEW_AIRCRAFT[0] : null;
     this._error = "";
+    this._provider = this._preview ? "Preview" : null;
     this._render();
     this._setHeight();
     this._observeMapSize();
@@ -191,11 +193,14 @@ class FlightRadarCard extends HTMLElement {
       const radius = Math.min(250, Math.max(10, Number(this._config.live.radius_nm) || 250));
       const result = await this._hass.callWS({ type: "flightradar_card/get_aircraft", latitude: airport.lat, longitude: airport.lon, radius });
       this._flights = Array.isArray(result?.aircraft) ? result.aircraft : [];
+      this._provider = result?.provider || null;
+      this._error = result?.error || "";
       if (this._selected) {
         const selectedId = this._selected.hex || this._selected.icao24;
         this._selected = this._flights.find((f) => (f.hex || f.icao24) === selectedId) || null;
       }
     } catch (err) {
+      this._provider = null;
       this._error = err?.message || "Live ADS-B unavailable";
     } finally {
       this._loading = false;
@@ -212,6 +217,8 @@ class FlightRadarCard extends HTMLElement {
       const aircraft = Array.isArray(result?.aircraft) ? result.aircraft[0] : result?.aircraft;
       if (aircraft) {
         this._selected = aircraft;
+        this._provider = result?.provider || null;
+        this._error = "";
         this._render();
       } else {
         this._error = `No live aircraft found for ${q}`;
@@ -235,28 +242,24 @@ class FlightRadarCard extends HTMLElement {
         :host{display:block;width:100%;min-width:0}
         .card{position:relative;width:100%;min-width:0;min-height:420px;overflow:hidden;border-radius:16px;background:#11161b;color:#f5f7fa;font-family:var(--primary-font-family,Arial,sans-serif)}
         .map{position:absolute;inset:0;width:100%;height:100%;overflow:hidden;background:#b8c3c8}.map img{position:absolute;width:256px;height:256px;display:block}.overlay{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.24),rgba(0,0,0,.08) 45%,rgba(0,0,0,.34));pointer-events:none}
-        .panel{position:absolute;z-index:10;background:rgba(17,22,27,.96);border:1px solid rgba(255,255,255,.12);box-shadow:0 10px 30px rgba(0,0,0,.35);border-radius:16px}
-        .selected{top:12px;left:12px;width:min(300px,calc(100% - 24px));overflow:hidden}.traffic{top:12px;right:12px;width:min(360px,calc(100% - 24px));padding:12px}
+        .panel{position:absolute;z-index:10;background:rgba(17,22,27,.96);border:1px solid rgba(255,255,255,.12);box-shadow:0 10px 30px rgba(0,0,0,.35);border-radius:16px}.selected{top:12px;left:12px;width:min(300px,calc(100% - 24px));overflow:hidden}.traffic{top:12px;right:12px;width:min(360px,calc(100% - 24px));padding:12px}
         .search{position:absolute;z-index:20;top:12px;left:50%;transform:translateX(-50%);display:flex;gap:6px;width:min(420px,calc(100% - 24px));background:rgba(17,22,27,.96);padding:6px;border-radius:12px;border:1px solid rgba(255,255,255,.14)}
         .search input{flex:1;min-width:0;background:#252b31;color:#fff;border:0;border-radius:8px;padding:10px 12px;outline:none}.search button{border:0;border-radius:8px;padding:0 14px;font-weight:700}
-        .content{padding:12px}.eyebrow{font-size:10px;letter-spacing:1.6px;color:#aeb9c4}h2{margin:4px 0;font-size:23px}.airline{color:#c6ced6;font-size:12px}
-        .route{display:flex;align-items:center;gap:8px;margin:12px 0;font-size:12px}.route span:nth-child(2){flex:1;height:1px;background:#59636c}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.stat{background:#252b31;padding:8px;border-radius:9px}.stat label{display:block;font-size:9px;color:#89949f;text-transform:uppercase}.stat b{font-size:12px}
+        .content{padding:12px}.eyebrow{font-size:10px;letter-spacing:1.6px;color:#aeb9c4}h2{margin:4px 0;font-size:23px}.airline{color:#c6ced6;font-size:12px}.route{display:flex;align-items:center;gap:8px;margin:12px 0;font-size:12px}.route span:nth-child(2){flex:1;height:1px;background:#59636c}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.stat{background:#252b31;padding:8px;border-radius:9px}.stat label{display:block;font-size:9px;color:#89949f;text-transform:uppercase}.stat b{font-size:12px}
         .traffic-head{display:flex;justify-content:space-between;font-size:12px;font-weight:700;margin-bottom:8px}.traffic-sub{font-size:9px;color:#9aa6b2;font-weight:400}.traffic-row{display:grid;grid-template-columns:38px 72px 1fr 55px;gap:4px;align-items:center;background:#22282e;border-radius:8px;padding:8px;margin-top:4px;font-size:10px}.traffic-row .callsign{font-weight:700}
         .aircraft{position:absolute;z-index:6;cursor:pointer;color:white;font-size:24px;text-shadow:0 2px 8px #000}.aircraft.selected{color:#ffd33d;font-size:30px}.airport{position:absolute;z-index:5;transform:translate(-50%,-50%);width:12px;height:12px;background:white;border-radius:50%;box-shadow:0 0 0 3px rgba(255,255,255,.22)}
         .badge{position:absolute;z-index:12;bottom:10px;padding:8px 10px;border-radius:8px;background:rgba(17,22,27,.9);font-size:10px}.badge.left{left:10px}.badge.right{right:10px}.preview-label{color:#8ed0ff}.error{color:#ffb4ab;font-size:11px}
-        @media(max-width:700px){.search{top:8px}.selected{top:72px;left:12px;width:calc(100% - 24px)}.traffic{top:calc(72px + 300px);left:12px;right:12px;width:auto}.traffic-row{grid-template-columns:34px 60px 1fr 48px}}
+        @media(max-width:700px){.search{top:8px}.selected{top:72px;left:8px}.traffic{right:8px;top:auto;bottom:8px;width:min(360px,calc(100% - 16px))}.traffic-row{grid-template-columns:36px 65px 1fr 50px}}
       </style>
       <div class="card">
         <div class="map" id="map"></div><div class="overlay"></div>
-        <form class="search" id="search"><input id="q" placeholder="Search flight / registration / ICAO..." autocomplete="off"><button>SEARCH</button></form>
-        <section class="panel selected" id="selectedPanel"></section>
-        <section class="panel traffic" id="trafficPanel"></section>
+        <div class="panel selected" id="selectedPanel"></div>
+        <div class="panel traffic" id="trafficPanel"></div>
+        <form class="search" id="search"><input id="q" placeholder="Search flight / registration / ICAO..." autocomplete="off"><button type="submit">SEARCH</button></form>
         <div class="badge left">${airport.code} · ${airport.name}</div>
-        <div class="badge right">${this._preview ? '<span class="preview-label">PREVIEW</span>' : (aircraft.length ? `${aircraft.length} aircraft · ALL LIVE ADS-B` : 'Live ADS-B unavailable')}</div>
+        <div class="badge right">${this._preview ? "Preview aircraft" : this._loading ? "Live ADS-B · Loading" : this._error ? "Live ADS-B unavailable" : `Live ADS-B · ${this._provider || "connected"}`}</div>
       </div>`;
 
-    // Reapply the explicit card height after every render. Without this, clicking
-    // an aircraft rebuilds the shadow DOM and the card falls back to content height.
     this._setHeight();
     this._renderSelected(selected);
     this._renderTraffic(airport, aircraft);
@@ -345,7 +348,8 @@ class FlightRadarCard extends HTMLElement {
     const panel = this.shadowRoot.getElementById("trafficPanel");
     if (!panel) return;
     const rows = aircraft.slice(0, 8).map((f) => `<div class="traffic-row"><span>ADS-B</span><span class="callsign">${f.callsign || f.flight || f.registration || "—"}</span><span>${f.type || "Unknown"}</span><span>${f.altitude != null ? `${Math.round(f.altitude / 100) * 100} ft` : "—"}</span></div>`).join("");
-    panel.innerHTML = `<div class="traffic-head"><span>${airport.code} · Live Air Traffic</span><span class="traffic-sub">ALL AIRCRAFT IN AREA</span></div>${rows || `<div class="traffic-row"><span>—</span><span class="callsign">${this._loading ? "LOADING" : "NO DATA"}</span><span>${this._error || "No aircraft"}</span><span>—</span></div>`}`;
+    const status = this._error || (this._provider ? `Feed: ${this._provider}` : "No aircraft");
+    panel.innerHTML = `<div class="traffic-head"><span>${airport.code} · Live Air Traffic</span><span class="traffic-sub">ALL AIRCRAFT IN AREA</span></div>${rows || `<div class="traffic-row"><span>—</span><span class="callsign">${this._loading ? "LOADING" : "NO DATA"}</span><span>${status}</span><span>—</span></div>`}`;
   }
 }
 
