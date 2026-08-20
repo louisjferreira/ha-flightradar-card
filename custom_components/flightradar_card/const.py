@@ -1,3 +1,3 @@
 DOMAIN = "flightradar_card"
-CARD_VERSION = "0.8.6"
+CARD_VERSION = "0.8.7"
 CARD_URL = f"/flightradar_card/card-loader.js?v={CARD_VERSION}"
