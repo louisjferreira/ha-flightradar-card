@@ -3,19 +3,26 @@
   if (window.__FLIGHTRADAR_CARD_LOADED__) return;
   window.__FLIGHTRADAR_CARD_LOADED__ = true;
 
-  const sourceUrl = "/flightradar_card/flightradar-card.js?v=0.8.6";
+  const version = "0.8.7";
+  const loadScript = async (path) => {
+    const response = await fetch(`${path}?v=${version}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`FlightRadar Card HTTP ${response.status}`);
+    const source = await response.text();
+    const blob = new Blob([source], { type: "text/javascript" });
+    const url = URL.createObjectURL(blob);
+    try {
+      await import(url);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  };
 
-  fetch(sourceUrl, { cache: "no-store" })
-    .then((response) => {
-      if (!response.ok) throw new Error(`FlightRadar Card HTTP ${response.status}`);
-      return response.text();
-    })
-    .then((source) => {
-      const blob = new Blob([source], { type: "text/javascript" });
-      const url = URL.createObjectURL(blob);
-      return import(url).finally(() => URL.revokeObjectURL(url));
-    })
-    .catch((error) => {
+  (async () => {
+    try {
+      await loadScript("/flightradar_card/flightradar-card.js");
+      await loadScript("/flightradar_card/card-fix.js");
+    } catch (error) {
       console.error("[FlightRadar Card] Failed to load card:", error);
-    });
+    }
+  })();
 })();
