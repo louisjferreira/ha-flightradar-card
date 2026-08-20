@@ -3,7 +3,7 @@
   if (window.__FLIGHTRADAR_CARD_LOADED__) return;
   window.__FLIGHTRADAR_CARD_LOADED__ = true;
 
-  const sourceUrl = "/flightradar_card/flightradar-card.js?v=0.8.5";
+  const sourceUrl = "/flightradar_card/flightradar-card.js?v=0.8.6";
 
   fetch(sourceUrl, { cache: "no-store" })
     .then((response) => {
