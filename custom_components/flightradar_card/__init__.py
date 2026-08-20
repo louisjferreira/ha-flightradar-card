@@ -19,6 +19,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     frontend_path = Path(__file__).parent / "frontend"
     loader_path = frontend_path / "card-loader.js"
     card_path = frontend_path / "flightradar-card.js"
+    fix_path = frontend_path / "card-fix.js"
 
     static_paths = []
     if loader_path.exists():
@@ -29,11 +30,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         static_paths.append(
             StaticPathConfig("/flightradar_card/flightradar-card.js", str(card_path), cache_headers=False)
         )
+    if fix_path.exists():
+        static_paths.append(
+            StaticPathConfig("/flightradar_card/card-fix.js", str(fix_path), cache_headers=False)
+        )
 
     if static_paths:
         await hass.http.async_register_static_paths(static_paths)
-        # Load the loader as a Lovelace module on every frontend load.
-        # The version query string in CARD_URL deliberately busts the HA frontend cache.
         add_extra_js_url(hass, CARD_URL)
 
     websocket_api.async_register_command(hass, websocket_get_aircraft)
@@ -56,21 +59,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         vol.Required("type"): "flightradar_card/get_aircraft",
         vol.Required("latitude"): vol.Coerce(float),
         vol.Required("longitude"): vol.Coerce(float),
-        vol.Optional("radius", default=250): vol.All(
-            vol.Coerce(int), vol.Range(min=10, max=250)
-        ),
+        vol.Optional("radius", default=250): vol.All(vol.Coerce(int), vol.Range(min=10, max=250)),
     }
 )
 @websocket_api.async_response
 async def websocket_get_aircraft(hass: HomeAssistant, connection, msg: dict) -> None:
     """Return live aircraft around a point."""
     try:
-        result = await get_aircraft(
-            hass,
-            msg["latitude"],
-            msg["longitude"],
-            msg["radius"],
-        )
+        result = await get_aircraft(hass, msg["latitude"], msg["longitude"], msg["radius"])
         connection.send_result(msg["id"], result)
     except Exception as err:  # noqa: BLE001
         connection.send_error(msg["id"], "adsb_unavailable", str(err))
