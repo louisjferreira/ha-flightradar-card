@@ -1,9 +1,11 @@
 /*
  * FlightRadar Card for Home Assistant
- * Initial UI prototype - real flight data will be added in a later milestone.
+ * Map renderer prototype - live flight data will be added in a later milestone.
  */
 
-const CARD_VERSION = "0.1.0";
+const CARD_VERSION = "0.2.0";
+const TILE_SIZE = 256;
+const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 
 const AIRPORTS = {
   HRE: {
@@ -30,7 +32,7 @@ class FlightradarCard extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._config = {};
     this._selected = DEMO_FLIGHTS[0];
-    this._map = null;
+    this._resizeObserver = null;
   }
 
   setConfig(config) {
@@ -57,48 +59,37 @@ class FlightradarCard extends HTMLElement {
     return AIRPORTS[key] || AIRPORTS.HRE;
   }
 
-  _render() {
-    if (!this._config) return;
+  _project(lat, lon, zoom) {
+    const n = Math.pow(2, zoom);
+    const x = (lon + 180) / 360 * n * TILE_SIZE;
+    const latRad = lat * Math.PI / 180;
+    const y = (1 - Math.asinh(Math.tan(latRad)) / Math.PI) / 2 * n * TILE_SIZE;
+    return { x, y };
+  }
 
+  _tileX(x, n) {
+    return ((x % n) + n) % n;
+  }
+
+  _render() {
     const airport = this._airport();
-    const map = this._config.map || {};
     const height = this._config.appearance?.height || "520px";
 
     this.shadowRoot.innerHTML = `
       <style>
         :host { display:block; color:#fff; font-family:var(--primary-font-family,Arial,sans-serif); }
         * { box-sizing:border-box; }
-        .card {
-          position:relative; overflow:hidden; height:${height}; min-height:360px;
-          border-radius:18px; background:#111820;
-          border:1px solid rgba(255,255,255,.12);
-          box-shadow:0 10px 30px rgba(0,0,0,.25);
-        }
-        .map {
-          position:absolute; inset:0; overflow:hidden; background:#18232b;
-        }
-        .tiles {
-          position:absolute; inset:0; background-size:cover;
-          background-position:center;
-          filter:saturate(.72) brightness(.72);
-        }
-        .shade {
-          position:absolute; inset:0;
-          background:linear-gradient(180deg,rgba(4,10,15,.18),rgba(4,10,15,.05) 45%,rgba(4,10,15,.45));
-          pointer-events:none;
-        }
-        .map-grid {
-          position:absolute; inset:0; opacity:.08; pointer-events:none;
-          background-image:linear-gradient(rgba(255,255,255,.6) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.6) 1px,transparent 1px);
-          background-size:80px 80px;
-        }
-        .overlay { position:absolute; inset:0; pointer-events:none; }
-        .panel {
-          position:absolute; pointer-events:auto;
-          background:rgba(8,14,20,.88); backdrop-filter:blur(12px);
-          border:1px solid rgba(255,255,255,.14); border-radius:14px;
-          box-shadow:0 8px 24px rgba(0,0,0,.28);
-        }
+        .card { position:relative; overflow:hidden; height:${height}; min-height:360px; border-radius:18px; background:#111820; border:1px solid rgba(255,255,255,.12); box-shadow:0 10px 30px rgba(0,0,0,.25); }
+        .map { position:absolute; inset:0; overflow:hidden; background:#18232b; }
+        .tile-layer { position:absolute; inset:0; overflow:hidden; background:#26343d; }
+        .tile { position:absolute; width:${TILE_SIZE}px; height:${TILE_SIZE}px; max-width:none; user-select:none; pointer-events:none; filter:saturate(.72) brightness(.72); }
+        .shade { position:absolute; inset:0; background:linear-gradient(180deg,rgba(4,10,15,.18),rgba(4,10,15,.05) 45%,rgba(4,10,15,.45)); pointer-events:none; }
+        .map-grid { position:absolute; inset:0; opacity:.05; pointer-events:none; background-image:linear-gradient(rgba(255,255,255,.6) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.6) 1px,transparent 1px); background-size:80px 80px; }
+        .aircraft-layer { position:absolute; inset:0; pointer-events:none; }
+        .airport-marker { position:absolute; transform:translate(-50%,-50%); pointer-events:none; text-align:center; z-index:4; }
+        .airport-dot { width:14px; height:14px; margin:auto; border-radius:50%; background:#fff; border:3px solid rgba(255,255,255,.28); box-shadow:0 0 0 5px rgba(255,255,255,.08),0 2px 8px rgba(0,0,0,.5); }
+        .airport-label { margin-top:6px; padding:3px 6px; border-radius:5px; background:rgba(8,14,20,.76); color:#e7edf1; font-size:9px; letter-spacing:.08em; white-space:nowrap; }
+        .panel { position:absolute; pointer-events:auto; background:rgba(8,14,20,.88); backdrop-filter:blur(12px); border:1px solid rgba(255,255,255,.14); border-radius:14px; box-shadow:0 8px 24px rgba(0,0,0,.28); z-index:10; }
         .selected { left:14px; top:14px; width:min(320px,calc(100% - 28px)); padding:14px; }
         .movements { right:14px; top:14px; width:min(330px,calc(100% - 28px)); padding:12px; }
         .eyebrow { font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#9caab5; margin-bottom:4px; }
@@ -119,32 +110,26 @@ class FlightradarCard extends HTMLElement {
         .arr { color:#82c9ff; } .dep { color:#a9e7a4; }
         .row .route-name { color:#c8d0d6; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
         .row time { text-align:right; color:#fff; font-variant-numeric:tabular-nums; }
-        .aircraft { position:absolute; pointer-events:auto; transform:translate(-50%,-50%); cursor:pointer; }
+        .aircraft { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; cursor:pointer; z-index:6; }
         .aircraft button { border:0; background:transparent; color:#fff; padding:5px; cursor:pointer; }
-        .plane { display:block; width:24px; height:24px; transform-origin:center; filter:drop-shadow(0 2px 4px rgba(0,0,0,.8)); }
-        .plane::before { content:'✈'; display:block; font-size:22px; line-height:24px; }
-        .aircraft.selected-aircraft .plane { color:#ffcc66; transform:scale(1.25); }
-        .tooltip { position:absolute; left:50%; top:31px; transform:translateX(-50%); white-space:nowrap; padding:4px 7px; border-radius:6px; background:rgba(0,0,0,.78); font-size:9px; opacity:0; transition:opacity .15s; pointer-events:none; }
+        .plane { display:block; width:28px; height:28px; transform-origin:center; filter:drop-shadow(0 2px 4px rgba(0,0,0,.8)); transition:transform .15s ease,color .15s ease; }
+        .plane svg { display:block; width:100%; height:100%; fill:currentColor; }
+        .aircraft:hover .plane { color:#d8f0ff; transform:scale(1.12); }
+        .aircraft.selected-aircraft .plane { color:#ffcc66; transform:scale(1.32); filter:drop-shadow(0 0 7px rgba(255,204,102,.65)); }
+        .tooltip { position:absolute; left:50%; top:36px; transform:translateX(-50%); white-space:nowrap; padding:4px 7px; border-radius:6px; background:rgba(0,0,0,.78); font-size:9px; opacity:0; transition:opacity .15s; pointer-events:none; }
         .aircraft:hover .tooltip, .aircraft.selected-aircraft .tooltip { opacity:1; }
-        .home { position:absolute; left:50%; top:55%; transform:translate(-50%,-50%); pointer-events:none; text-align:center; }
-        .home-dot { width:12px; height:12px; margin:auto; border-radius:50%; background:#fff; border:3px solid rgba(255,255,255,.25); box-shadow:0 0 0 5px rgba(255,255,255,.08); }
-        .home-label { margin-top:6px; font-size:9px; letter-spacing:.1em; color:#e7edf1; }
-        .footer { position:absolute; left:14px; right:14px; bottom:12px; display:flex; justify-content:space-between; align-items:center; pointer-events:none; }
+        .footer { position:absolute; left:14px; right:14px; bottom:12px; display:flex; justify-content:space-between; align-items:center; pointer-events:none; z-index:12; }
         .badge { background:rgba(8,14,20,.82); backdrop-filter:blur(10px); border:1px solid rgba(255,255,255,.12); border-radius:9px; padding:7px 9px; font-size:10px; color:#dce3e8; }
-        @media(max-width:650px) {
-          .selected { width:calc(100% - 28px); }
-          .movements { top:auto; bottom:54px; width:calc(100% - 28px); max-height:160px; }
-          .rows { max-height:105px; }
-          .selected .stats { grid-template-columns:repeat(3,1fr); }
-        }
+        .attribution { position:absolute; right:5px; bottom:2px; z-index:13; font-size:7px; color:rgba(255,255,255,.6); pointer-events:none; }
+        @media(max-width:650px) { .selected { width:calc(100% - 28px); } .movements { top:auto; bottom:54px; width:calc(100% - 28px); max-height:160px; } .rows { max-height:105px; } }
       </style>
       <ha-card class="card">
         <div class="map">
-          <div class="tiles"></div>
+          <div class="tile-layer"></div>
           <div class="map-grid"></div>
           <div class="shade"></div>
           <div class="aircraft-layer"></div>
-          <div class="home"><div class="home-dot"></div><div class="home-label">${airport.code} · ${airport.city.toUpperCase()}</div></div>
+          <div class="airport-marker"><div class="airport-dot"></div><div class="airport-label">${airport.code} · ${airport.city.toUpperCase()}</div></div>
         </div>
         <div class="overlay">
           <section class="panel selected">
@@ -172,65 +157,87 @@ class FlightradarCard extends HTMLElement {
             <div class="badge">${airport.name}</div>
             <div class="badge">${DEMO_FLIGHTS.length} aircraft · demo data</div>
           </div>
+          <div class="attribution">© OpenStreetMap contributors</div>
         </div>
       </ha-card>
     `;
 
-    this._renderMap(map, airport);
-    this._renderAircraft();
+    if (this._resizeObserver) this._resizeObserver.disconnect();
+    const mapEl = this.shadowRoot.querySelector(".map");
+    if (mapEl && "ResizeObserver" in window) {
+      this._resizeObserver = new ResizeObserver(() => this._renderMap());
+      this._resizeObserver.observe(mapEl);
+    }
+    requestAnimationFrame(() => this._renderMap());
   }
 
-  _renderMap(map, airport) {
-    const tiles = this.shadowRoot.querySelector(".tiles");
-    if (!tiles) return;
+  _renderMap() {
+    const mapEl = this.shadowRoot.querySelector(".map");
+    const tileLayer = this.shadowRoot.querySelector(".tile-layer");
+    const aircraftLayer = this.shadowRoot.querySelector(".aircraft-layer");
+    const airportMarker = this.shadowRoot.querySelector(".airport-marker");
+    if (!mapEl || !tileLayer || !aircraftLayer) return;
 
-    const zoom = Number(map.zoom ?? 7);
-    const lat = Number(map.latitude ?? airport.latitude);
-    const lon = Number(map.longitude ?? airport.longitude);
+    const airport = this._airport();
+    const map = this._config.map || {};
+    const zoom = Math.max(2, Math.min(18, Number(map.zoom ?? 7)));
+    const centerLat = Number(map.latitude ?? airport.latitude);
+    const centerLon = Number(map.longitude ?? airport.longitude);
+    const width = mapEl.clientWidth;
+    const height = mapEl.clientHeight;
+    if (!width || !height) return;
+
+    const center = this._project(centerLat, centerLon, zoom);
     const n = Math.pow(2, zoom);
-    const x = (lon + 180) / 360 * n;
-    const latRad = lat * Math.PI / 180;
-    const y = (1 - Math.asinh(Math.tan(latRad)) / Math.PI) / 2 * n;
-    const size = 256;
-    const centerX = x * size;
-    const centerY = y * size;
+    const startX = Math.floor((center.x - width / 2) / TILE_SIZE) - 1;
+    const endX = Math.floor((center.x + width / 2) / TILE_SIZE) + 1;
+    const startY = Math.floor((center.y - height / 2) / TILE_SIZE) - 1;
+    const endY = Math.floor((center.y + height / 2) / TILE_SIZE) + 1;
 
-    tiles.style.backgroundImage = [
-      `url("https://tile.openstreetmap.org/${zoom}/${Math.floor(x)}/${Math.floor(y)}.png")`,
-      `url("https://tile.openstreetmap.org/${zoom}/${Math.floor(x) + 1}/${Math.floor(y)}.png")`,
-      `url("https://tile.openstreetmap.org/${zoom}/${Math.floor(x)}/${Math.floor(y) + 1}.png")`,
-      `url("https://tile.openstreetmap.org/${zoom}/${Math.floor(x) + 1}/${Math.floor(y) + 1}.png")`,
-    ].join(",");
-    tiles.style.backgroundSize = `${size}px ${size}px, ${size}px ${size}px, ${size}px ${size}px, ${size}px ${size}px`;
-    tiles.style.backgroundPosition = "50% 50%, calc(50% + 256px) 50%, 50% calc(50% + 256px), calc(50% + 256px) calc(50% + 256px)";
-    tiles.dataset.centerX = centerX;
-    tiles.dataset.centerY = centerY;
-    tiles.dataset.zoom = zoom;
+    tileLayer.innerHTML = "";
+    for (let ty = startY; ty <= endY; ty += 1) {
+      if (ty < 0 || ty >= n) continue;
+      for (let tx = startX; tx <= endX; tx += 1) {
+        const wrappedX = this._tileX(tx, n);
+        const img = document.createElement("img");
+        img.className = "tile";
+        img.alt = "";
+        img.draggable = false;
+        img.src = OSM_TILE_URL.replace("{z}", zoom).replace("{x}", wrappedX).replace("{y}", ty);
+        img.style.left = `${tx * TILE_SIZE - center.x + width / 2}px`;
+        img.style.top = `${ty * TILE_SIZE - center.y + height / 2}px`;
+        tileLayer.appendChild(img);
+      }
+    }
+
+    this._positionMarker(airportMarker, airport.latitude, airport.longitude, center, zoom, width, height);
+    this._renderAircraft(center, zoom, width, height);
   }
 
-  _renderAircraft() {
+  _positionMarker(element, lat, lon, center, zoom, width, height) {
+    if (!element) return;
+    const point = this._project(lat, lon, zoom);
+    element.style.left = `${width / 2 + point.x - center.x}px`;
+    element.style.top = `${height / 2 + point.y - center.y}px`;
+  }
+
+  _renderAircraft(center, zoom, width, height) {
     const layer = this.shadowRoot.querySelector(".aircraft-layer");
-    const tiles = this.shadowRoot.querySelector(".tiles");
-    if (!layer || !tiles) return;
-
-    const zoom = Number(tiles.dataset.zoom);
-    const centerX = Number(tiles.dataset.centerX);
-    const centerY = Number(tiles.dataset.centerY);
-    const mapRect = this.shadowRoot.querySelector(".map").getBoundingClientRect();
-    const n = Math.pow(2, zoom);
+    if (!layer) return;
 
     layer.innerHTML = DEMO_FLIGHTS.map(flight => {
-      const x = (flight.lon + 180) / 360 * n * 256;
-      const latRad = flight.lat * Math.PI / 180;
-      const y = (1 - Math.asinh(Math.tan(latRad)) / Math.PI) / 2 * n * 256;
-      const left = mapRect.width / 2 + (x - centerX);
-      const top = mapRect.height / 2 + (y - centerY);
+      const point = this._project(flight.lat, flight.lon, zoom);
+      const left = width / 2 + point.x - center.x;
+      const top = height / 2 + point.y - center.y;
+      if (left < -50 || left > width + 50 || top < -50 || top > height + 50) return "";
       const selected = this._selected?.id === flight.id ? " selected-aircraft" : "";
-      return `<div class="aircraft${selected}" data-flight-id="${flight.id}" style="left:${left}px;top:${top}px"><button aria-label="Track ${flight.flight}"><span class="plane" style="transform:rotate(${flight.heading}deg)"></span></button><span class="tooltip">${flight.flight}</span></div>`;
+      const svg = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.5 12.9 14 10.2V5.1c0-.8-.7-1.5-1.5-1.5S11 4.3 11 5.1v5.1l-7.5 2.7c-.5.2-.8.7-.7 1.2l.2.7 8-1.5v5.2l-2.3 1.4v.8l3.8-.8 3.8.8v-.8L14 18.6v-5.2l8 1.5.2-.7c.1-.6-.2-1.1-.7-1.3Z"/></svg>`;
+      return `<div class="aircraft${selected}" data-flight-id="${flight.id}" style="left:${left}px;top:${top}px"><button aria-label="Track ${flight.flight}"><span class="plane" style="transform:rotate(${flight.heading}deg)">${svg}</span></button><span class="tooltip">${flight.flight}</span></div>`;
     }).join("");
 
     layer.querySelectorAll(".aircraft").forEach(el => {
-      el.addEventListener("click", () => {
+      el.addEventListener("click", event => {
+        event.stopPropagation();
         const flight = DEMO_FLIGHTS.find(item => item.id === el.dataset.flightId);
         if (!flight) return;
         this._selected = flight;
@@ -238,16 +245,22 @@ class FlightradarCard extends HTMLElement {
       });
     });
   }
+
+  disconnectedCallback() {
+    if (this._resizeObserver) this._resizeObserver.disconnect();
+  }
 }
 
-customElements.define("flightradar-card", FlightradarCard);
+if (!customElements.get("flightradar-card")) {
+  customElements.define("flightradar-card", FlightradarCard);
+}
 
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "flightradar-card",
   name: "FlightRadar Card",
-  description: "FlightRadar-style map and airport movement card.",
+  description: "Flight tracking map with selected-aircraft details and airport movements.",
   preview: true,
-  documentationURL: "https://github.com/louisjferreira/ha-flightradar-card",
-  version: CARD_VERSION,
 });
+
+console.info(`%c FlightRadar Card %c v${CARD_VERSION} `, "color:#fff;background:#1e88e5;font-weight:bold", "color:#1e88e5;background:#fff;font-weight:bold");
