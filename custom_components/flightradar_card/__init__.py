@@ -10,7 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 
-from .api import get_aircraft, get_aircraft_photo, search_aircraft
+from .api import get_aircraft, get_aircraft_detail, get_aircraft_photo, get_airport_activity, search_aircraft
 from .const import CARD_URL, DOMAIN
 
 
@@ -31,6 +31,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         add_extra_js_url(hass, CARD_URL)
     websocket_api.async_register_command(hass, websocket_get_aircraft)
     websocket_api.async_register_command(hass, websocket_search_aircraft)
+    websocket_api.async_register_command(hass, websocket_get_detail)
+    websocket_api.async_register_command(hass, websocket_get_activity)
     websocket_api.async_register_command(hass, websocket_get_photo)
     return True
 
@@ -54,8 +56,8 @@ async def websocket_get_aircraft(hass: HomeAssistant, connection, msg: dict) -> 
     try:
         result = await get_aircraft(hass, msg["latitude"], msg["longitude"], msg["radius"])
         connection.send_result(msg["id"], result)
-    except Exception as err:  # noqa: BLE001
-        connection.send_error(msg["id"], "adsb_unavailable", str(err))
+    except Exception as err:
+        connection.send_error(msg["id"], "fr24_unavailable", str(err))
 
 
 @websocket_api.websocket_command({
@@ -67,8 +69,34 @@ async def websocket_search_aircraft(hass: HomeAssistant, connection, msg: dict) 
     try:
         result = await search_aircraft(hass, msg["query"])
         connection.send_result(msg["id"], result)
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         connection.send_error(msg["id"], "search_failed", str(err))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "flightradar_card/get_detail",
+    vol.Required("flight"): dict,
+})
+@websocket_api.async_response
+async def websocket_get_detail(hass: HomeAssistant, connection, msg: dict) -> None:
+    try:
+        result = await get_aircraft_detail(hass, msg["flight"])
+        connection.send_result(msg["id"], result)
+    except Exception as err:
+        connection.send_error(msg["id"], "detail_failed", str(err))
+
+
+@websocket_api.websocket_command({
+    vol.Required("type"): "flightradar_card/get_activity",
+    vol.Required("airport"): vol.Coerce(str),
+})
+@websocket_api.async_response
+async def websocket_get_activity(hass: HomeAssistant, connection, msg: dict) -> None:
+    try:
+        result = await get_airport_activity(hass, msg["airport"])
+        connection.send_result(msg["id"], result)
+    except Exception as err:
+        connection.send_error(msg["id"], "activity_failed", str(err))
 
 
 @websocket_api.websocket_command({
@@ -80,5 +108,5 @@ async def websocket_get_photo(hass: HomeAssistant, connection, msg: dict) -> Non
     try:
         result = await get_aircraft_photo(hass, msg["hex"])
         connection.send_result(msg["id"], result)
-    except Exception as err:  # noqa: BLE001
+    except Exception as err:
         connection.send_error(msg["id"], "photo_unavailable", str(err))
