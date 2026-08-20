@@ -20,8 +20,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     card_path = frontend_path / "flightradar-card.js"
     if card_path.exists():
         await hass.http.async_register_static_paths(
-            [StaticPathConfig(CARD_URL, str(card_path), cache_headers=False)]
+            [StaticPathConfig(CARD_URL.split("?", 1)[0], str(card_path), cache_headers=False)]
         )
+        # Load the card as a Lovelace module on every frontend load.
+        # The version query string in CARD_URL deliberately busts the HA frontend cache.
         add_extra_js_url(hass, CARD_URL)
 
     websocket_api.async_register_command(hass, websocket_get_aircraft)
