@@ -1,43 +1,30 @@
 # FlightRadar Card for Home Assistant
 
-A FlightRadar-style Lovelace card for Home Assistant with a full-screen map, selectable aircraft, aircraft search, and live ADS-B traffic.
+A FlightRadar-style Home Assistant card with a full-screen map, live ADS-B aircraft, aircraft search, and a selected-aircraft information panel.
 
-> **Development status:** Early live-data release. The card currently uses public ADS-B providers with automatic fallback. Airport schedules/true arrivals and departures will be added separately.
+## v0.8.0 architecture
 
-## Features
+The card now uses a small Home Assistant backend integration. This is intentional: browser-side calls to third-party ADS-B APIs are unreliable because of browser security/CORS behaviour. Home Assistant performs the provider requests and the card receives the result through Home Assistant's authenticated WebSocket API.
 
-- Full-card geographic map
-- Configurable map center and zoom
-- Airport-centered default view
-- Live ADS-B aircraft positions
-- Automatic provider fallback
-- Search by flight callsign, registration, or ICAO hex
-- Click an aircraft to track it and center the map
-- Selected-aircraft information panel
-- Aircraft type photography
-- Configurable airport
-- Configurable ADS-B radius up to 250 NM
-- Future local ADS-B receiver support
-- HACS distribution
-
-## Live data
-
-The default provider is `auto`, which tries:
+Live providers:
 
 1. Airplanes.live
 2. ADSB.lol
 
-The card does not require an API key for these public endpoints. Provider availability and coverage can vary by location.
-
-The card is designed so a future local ADS-B receiver can be used without changing the dashboard design.
+The backend automatically falls back between them.
 
 ## Installation
 
-Install through HACS as a Dashboard repository using the repository:
+1. In HACS, remove the old **Dashboard** installation of this repository.
+2. Add `louisjferreira/ha-flightradar-card` as a **Custom repository** with type **Integration**.
+3. Install/update it.
+4. Go to **Settings → Devices & services → Add Integration**.
+5. Search for **FlightRadar Card** and add it once.
+6. Reload Home Assistant or refresh the browser.
 
-`louisjferreira/ha-flightradar-card`
+The integration registers the card frontend automatically, so no manual Lovelace resource is required.
 
-## Configuration
+## Card configuration
 
 ```yaml
 type: custom:flightradar-card
@@ -46,61 +33,28 @@ map:
   zoom: 7
   center_on_airport: true
 live:
-  provider: auto
   radius_nm: 250
 refresh_interval: 15
 ```
 
-### Providers
+### Search
 
-Use automatic fallback:
+The search box accepts a live flight callsign, aircraft registration, or ICAO hex address. A match is selected and the map centres on it.
 
-```yaml
-live:
-  provider: auto
-```
+### Future local receiver
 
-Or force one provider:
+The backend architecture is deliberately provider-based so a future local readsb/tar1090 receiver can be added without redesigning the card. This is the intended path for a home ADS-B receiver.
 
-```yaml
-live:
-  provider: airplanes_live
-```
+## Roadmap
 
-```yaml
-live:
-  provider: adsb_lol
-```
-
-### Local ADS-B receiver
-
-A local receiver can be used later with an HTTP JSON endpoint compatible with readsb/tar1090-style aircraft data:
-
-```yaml
-live:
-  provider: local
-  url: "http://192.168.1.50/data/aircraft.json"
-```
-
-The URL may also contain `{lat}`, `{lon}`, and `{radius}` placeholders.
-
-## Map positioning
-
-By default the configured airport is always the map center. To use a custom center:
-
-```yaml
-map:
-  center_on_airport: false
-  latitude: -17.8
-  longitude: 31.0
-  zoom: 7
-```
-
-## Development
-
-This project is being developed as a standalone Home Assistant custom card with the goal of a clean HACS release.
-
-The current implementation focuses on the visual experience and live ADS-B traffic. Scheduled airport arrivals/departures require a separate flight-schedule data source and will be implemented as a distinct data layer.
+- Live ADS-B aircraft positions
+- Flight/registration/ICAO search
+- Selected aircraft tracking
+- Full-screen responsive map
+- Real HRE arrivals/departures board
+- Aircraft-specific photos
+- Local ADS-B receiver provider
+- Additional airport support
 
 ## License
 
