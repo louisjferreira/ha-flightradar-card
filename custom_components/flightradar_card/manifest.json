@@ -1,10 +1,10 @@
 {
   "domain": "flightradar_card",
   "name": "FlightRadar Card",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "documentation": "https://github.com/louisjferreira/ha-flightradar-card",
   "requirements": [],
   "codeowners": ["@louisjferreira"],
   "config_flow": true,
-  "iot_class": "cloud_polling"
+  "iot_class": "local_polling"
 }
