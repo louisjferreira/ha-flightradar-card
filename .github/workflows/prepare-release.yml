@@ -1,0 +1,59 @@
+name: Prepare release assets
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate Home Assistant brand icon
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y librsvg2-bin
+          mkdir -p custom_components/flightradar_card/brand
+          rsvg-convert -w 512 -h 512 icon.svg -o custom_components/flightradar_card/brand/icon.png
+
+      - name: Commit generated brand icon
+        run: |
+          if git diff --quiet -- custom_components/flightradar_card/brand/icon.png; then
+            echo "Brand icon is already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add custom_components/flightradar_card/brand/icon.png
+          git commit -m "Add Home Assistant brand icon"
+          git push
+
+      - name: Create GitHub release from manifest version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(python - <<'PY'
+          import json
+          with open("custom_components/flightradar_card/manifest.json", encoding="utf-8") as f:
+              print(json.load(f)["version"])
+          PY
+          )
+          TAG="v${VERSION}"
+          if [ "$VERSION" = "0.9.8" ]; then
+            echo "Skipping legacy pre-1.0.0 version ${VERSION}."
+            exit 0
+          fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists."
+            exit 0
+          fi
+          TARGET=$(git rev-parse HEAD)
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$TARGET" --title "$TAG" --generate-notes
