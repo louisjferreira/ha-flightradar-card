@@ -10,11 +10,30 @@
       const original = originalForm.bind(Card);
       Card.getConfigForm = function () {
         const form = original();
-        const defaults = { airport: "HRE", radius_nm: 150, refresh_interval: 60, zoom: 7, full_screen: true };
+        const defaults = { airport: "HRE", radius_nm: 150, refresh_interval: 60, zoom: 7, full_screen: true, airport_activity_hours: 5 };
         for (const item of form.schema || []) {
           if (Object.prototype.hasOwnProperty.call(defaults, item.name)) item.default = defaults[item.name];
         }
+        if (!(form.schema || []).some(item => item.name === "airport_activity_hours")) {
+          form.schema.push({
+            name: "airport_activity_hours",
+            selector: { number: { min: 1, max: 72, step: 1, mode: "box" } },
+          });
+        }
+        form.computeLabel = s => ({
+          ...(form.computeLabel ? {} : {}),
+          airport_activity_hours: "Airport activity timeframe (hours)",
+        }[s.name] || (form.computeLabel ? form.computeLabel(s) : s.name));
         return form;
+      };
+    }
+
+    const originalSetConfig = Card.prototype.setConfig;
+    if (originalSetConfig) {
+      Card.prototype.setConfig = function (c = {}) {
+        const hours = Number(c.airport_activity_hours ?? c.airport_activity?.hours ?? 5);
+        this._airportActivityHours = Math.min(72, Math.max(1, Number.isFinite(hours) ? hours : 5));
+        originalSetConfig.call(this, c);
       };
     }
 
@@ -114,14 +133,20 @@
       const p = this.shadowRoot?.getElementById("trafficPanel");
       if (!p) return;
       const airport = String(this._airport()?.code || "").toUpperCase();
+      const now = Date.now() / 1000;
+      const hours = Math.min(72, Math.max(1, Number(this._airportActivityHours) || 5));
+      const horizon = now + hours * 3600;
       let list = Array.isArray(this._activity) ? this._activity.slice() : [];
       list = list.filter(f => {
         const origin = String(f?.origin || "").toUpperCase();
         const destination = String(f?.destination || "").toUpperCase();
-        return f?.direction === "ARRIVAL" ? destination === airport : origin === airport;
+        const airportMatch = f?.direction === "ARRIVAL" ? destination === airport : origin === airport;
+        if (!airportMatch) return false;
+        const t = activityTime(f);
+        return t !== Number.MAX_SAFE_INTEGER && t >= now && t <= horizon;
       });
       list.sort((a, b) => activityTime(a) - activityTime(b));
-      list = list.slice(0, 40);
+      list = list.slice(0, 100);
 
       const rows = list.map(f => {
         const timeValue = activityTime(f);
@@ -132,7 +157,7 @@
         return `<div class="traffic-row"><span>${time}</span><span class="${arrival ? "dir-arr" : "dir-dep"}">${arrival ? "ARR" : "DEP"}</span><span class="callsign">${esc(f.flight || f.callsign || "—")}</span><span class="route-code">${esc(f.origin || "—")} → ${esc(f.destination || "—")}</span><span>${esc(f.type || f.aircraft_code || "—")}</span></div>`;
       }).join("");
 
-      p.innerHTML = `<div class="traffic-head"><span>${esc(airport)} · Airport Activity</span><span class="traffic-sub">${list.length} flights</span></div>${rows || `<div class="empty">${this._error ? esc(this._error) : "No airport activity available"}</div>`}`;
+      p.innerHTML = `<div class="traffic-head"><span>${esc(airport)} · Airport Activity</span><span class="traffic-sub">Next ${hours}h · ${list.length} flights</span></div>${rows || `<div class="empty">${this._error ? esc(this._error) : `No airport activity in the next ${hours} hours`}</div>`}`;
     };
 
     Card.__FLIGHTRADAR_VISUAL_PATCHED__ = true;
