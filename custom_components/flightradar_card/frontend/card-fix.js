@@ -1,4 +1,4 @@
-/* FlightRadar Card compatibility and visual fixes. */
+/* FlightRadar Card compatibility, visual and airport-board fixes. */
 (function () {
   const boot = () => {
     const Card = customElements.get("flightradar-card");
@@ -22,17 +22,21 @@
       const cat = String(f?.aircraft_category || "").toLowerCase();
       if (/HELI|H60|H70|H80|H90|EC|AS|AW|B06|R22|R44/.test(code) || cat.includes("helicopter")) return "heli";
       if (/AT4|AT7|AT72|DH8|Q4|SF3|F50|BE/.test(code) || cat.includes("turboprop")) return "turboprop";
-      if (/A3[0-9]|A220|B7[0-9]|B38|B39|E17|E19|CRJ|ERJ/.test(code)) return "jet";
+      if (/A380|A340|A350|A330|A310|A300|B747|B767|B777|B787|B788|B789/.test(code)) return "widebody";
+      if (/E17|E18|E19|E2|CRJ|ERJ|ARJ|RJ/.test(code)) return "regional";
+      if (/A31|A32|A20|A21|A22|A23|A24|A25|A3[0-9]|B73|B37|B38|B39|B7[0-9]|MD8|MD9|DC9/.test(code)) return "narrowbody";
       return "generic";
     };
 
     const modelScale = f => {
       const code = String(f?.aircraft_code || f?.type || "").toUpperCase();
-      if (/A380|B747|B777|B787/.test(code)) return 1.25;
-      if (/A330|A340|A350|B767/.test(code)) return 1.12;
-      if (/AT4|AT7|DH8|Q4|SF3|F50/.test(code)) return .92;
-      if (/H60|H70|H80|H90|EC|AS|AW|R22|R44/.test(code)) return .78;
-      return 1;
+      if (/A380|B747/.test(code)) return 1.28;
+      if (/A330|A340|A350|B767|B777|B787/.test(code)) return 1.16;
+      if (/A31|A32|A20|A21|A22|A23|A24|A25|B73|B37|B38|B39|B7[0-9]/.test(code)) return 1.02;
+      if (/E17|E18|E19|E2|CRJ|ERJ|ARJ|RJ/.test(code)) return .88;
+      if (/AT4|AT7|AT72|DH8|Q4|SF3|F50/.test(code)) return .90;
+      if (/H60|H70|H80|H90|EC|AS|AW|R22|R44/.test(code)) return .72;
+      return .96;
     };
 
     const svgFor = (f, selected) => {
@@ -44,6 +48,10 @@
         body = `<g fill="none" stroke="${stroke}" stroke-width="2.4" stroke-linecap="round"><path d="M50 23v20M43 43h14M50 23l-7 6M50 23l7 6"/><path d="M15 13h70M50 13v10"/><path d="M50 43v9"/></g><ellipse cx="50" cy="25" rx="5" ry="8" fill="${fill}" stroke="${stroke}" stroke-width="2"/>`;
       } else if (kind === "turboprop") {
         body = `<path d="M50 4c3 0 5 3 5 7v16l24 10v6L55 40v11h7v5H38v-5h7V40L21 43v-6l24-10V11c0-4 2-7 5-7z" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/><circle cx="17" cy="40" r="5" fill="none" stroke="${stroke}" stroke-width="2"/><circle cx="83" cy="40" r="5" fill="none" stroke="${stroke}" stroke-width="2"/>`;
+      } else if (kind === "widebody") {
+        body = `<path d="M50 2c5 0 8 5 8 12v13l34 15v8L58 45v11h10v7H32v-7h10V45L8 50v-8l34-15V14c0-7 3-12 8-12z" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/><path d="M38 28h24l-5-13h-5l-2 13z" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/><circle cx="30" cy="44" r="3" fill="${stroke}"/><circle cx="70" cy="44" r="3" fill="${stroke}"/>`;
+      } else if (kind === "regional") {
+        body = `<path d="M50 4c4 0 6 4 6 9v15l23 10v6L56 41v13h8v6H36v-6h8V41L21 44v-6l23-10V13c0-5 2-9 6-9z" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/><path d="M44 26h12l-3-9h-6z" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`;
       } else {
         body = `<path d="M50 3c4 0 6 4 6 9v16l29 13v7L56 43v12h9v6H35v-6h9V43L15 48v-7l29-13V12c0-5 2-9 6-9z" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/><path d="M44 25h12l-3-10h-6z" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`;
       }
@@ -60,7 +68,7 @@
         if (!style) {
           style = document.createElement("style");
           style.id = "fr24-icon-fix";
-          style.textContent = `.aircraft-icon{width:34px!important;height:34px!important;display:block!important;position:absolute!important;pointer-events:auto!important;transform-origin:50% 50%!important;filter:drop-shadow(0 2px 3px rgba(0,0,0,.75))}.aircraft-icon svg{width:100%!important;height:100%!important;display:block!important;overflow:visible!important}`;
+          style.textContent = `.aircraft-icon{width:34px!important;height:34px!important;display:block!important;position:absolute!important;pointer-events:auto!important;transform-origin:50% 50%!important;filter:drop-shadow(0 2px 3px rgba(0,0,0,.75))}.aircraft-icon svg{width:100%!important;height:100%!important;display:block!important;overflow:visible!important}.traffic-row{grid-template-columns:55px 48px 72px 1fr 72px!important}`;
           root.appendChild(style);
         }
         const icons = [...root.querySelectorAll(".aircraft-icon")];
@@ -81,6 +89,50 @@
         });
       };
     }
+
+    const activityTime = f => {
+      const keys = f?.direction === "ARRIVAL"
+        ? ["estimated_arrival", "scheduled_arrival", "real_arrival"]
+        : ["estimated_departure", "scheduled_departure", "real_departure"];
+      for (const key of keys) {
+        const value = Number(f?.[key]);
+        if (Number.isFinite(value) && value > 0) return value;
+      }
+      return Number.MAX_SAFE_INTEGER;
+    };
+
+    Card.prototype._activityTime = activityTime;
+    Card.prototype._combineActivity = function (arr, dep) {
+      return [
+        ...(Array.isArray(arr) ? arr.map(f => ({ ...f, direction: "ARRIVAL" })) : []),
+        ...(Array.isArray(dep) ? dep.map(f => ({ ...f, direction: "DEPARTURE" })) : []),
+      ].sort((a, b) => activityTime(a) - activityTime(b));
+    };
+
+    Card.prototype._updateTraffic = function () {
+      const p = this.shadowRoot?.getElementById("trafficPanel");
+      if (!p) return;
+      const airport = String(this._airport()?.code || "").toUpperCase();
+      let list = Array.isArray(this._activity) ? this._activity.slice() : [];
+      list = list.filter(f => {
+        const origin = String(f?.origin || "").toUpperCase();
+        const destination = String(f?.destination || "").toUpperCase();
+        return f?.direction === "ARRIVAL" ? destination === airport : origin === airport;
+      });
+      list.sort((a, b) => activityTime(a) - activityTime(b));
+      list = list.slice(0, 40);
+
+      const rows = list.map(f => {
+        const timeValue = activityTime(f);
+        const time = Number.isFinite(timeValue) && timeValue < Number.MAX_SAFE_INTEGER
+          ? new Date(timeValue * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+          : "--:--";
+        const arrival = f.direction === "ARRIVAL";
+        return `<div class="traffic-row"><span>${time}</span><span class="${arrival ? "dir-arr" : "dir-dep"}">${arrival ? "ARR" : "DEP"}</span><span class="callsign">${esc(f.flight || f.callsign || "—")}</span><span class="route-code">${esc(f.origin || "—")} → ${esc(f.destination || "—")}</span><span>${esc(f.type || f.aircraft_code || "—")}</span></div>`;
+      }).join("");
+
+      p.innerHTML = `<div class="traffic-head"><span>${esc(airport)} · Airport Activity</span><span class="traffic-sub">${list.length} flights</span></div>${rows || `<div class="empty">${this._error ? esc(this._error) : "No airport activity available"}</div>`}`;
+    };
 
     Card.__FLIGHTRADAR_VISUAL_PATCHED__ = true;
   };
