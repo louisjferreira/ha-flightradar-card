@@ -26,7 +26,7 @@ The card **does not require a separate FlightRadar24 API token**.
 
 Instead, it reads the flight data already provided to Home Assistant by the HACS **Flightradar24 integration by AlexandrErohin**. That integration exposes detailed flight objects through the `flights` attribute of its sensors, including current position, altitude, speed, heading, aircraft information, route and aircraft photographs.
 
-The card also uses the integration's **Airport arrivals** and **Airport departures** sensors for the airport board. If airport tracking has not yet been enabled, the card will attempt to set the integration's airport-tracking text entity automatically.
+The card also uses the integration's **Airport arrivals** and **Airport departures** sensors for the airport board. The selected airport is explicitly written to the integration's airport-tracking text entity before the board is refreshed, so the board follows the airport selected on the card.
 
 ## Required Home Assistant integration
 
@@ -111,13 +111,17 @@ Selecting an aircraft displays information such as:
 
 ## Airport activity
 
-The airport panel provides three views:
+The airport panel shows **one combined chronological board** for the selected airport. Arrivals and departures are mixed together and sorted by the relevant flight time.
 
-- **ALL** — arrivals and departures combined into one chronological list
-- **ARRIVALS** — arrivals for the selected airport
-- **DEPARTURES** — departures for the selected airport
+Each row shows:
 
-The **ALL** view is the default and sorts the two feeds together by their available scheduled/estimated/actual flight time. Airport-board entries without live coordinates are kept off the map so the map only displays real live aircraft positions.
+- Time
+- **ARR** or **DEP**
+- Flight number/callsign
+- Origin → destination
+- Aircraft type/code
+
+The board is filtered to the selected airport only. For arrivals, the selected airport must be the destination; for departures, it must be the origin. The card also forces the upstream FlightRadar24 integration to track the selected airport before refreshing the airport feeds.
 
 ## Map behaviour
 
@@ -159,7 +163,7 @@ The map uses OpenStreetMap tiles and does not require a separate map API token.
 
 ## Version
 
-**0.9.7**
+**0.9.8**
 
 ## License
 
