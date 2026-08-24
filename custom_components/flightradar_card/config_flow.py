@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from homeassistant import config_entries
+from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
 
@@ -21,3 +22,15 @@ class FlightRadarConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_reconfigure(self, user_input=None):
         return self.async_abort(reason="reconfigure_successful")
+
+
+async def async_migrate_entry(hass: HomeAssistant, config_entry: config_entries.ConfigEntry) -> bool:
+    """Migrate an existing FlightRadar Card config entry to the current version."""
+    if config_entry.version < FlightRadarConfigFlow.VERSION:
+        hass.config_entries.async_update_entry(
+            config_entry,
+            version=FlightRadarConfigFlow.VERSION,
+            data=dict(config_entry.data),
+        )
+
+    return True
