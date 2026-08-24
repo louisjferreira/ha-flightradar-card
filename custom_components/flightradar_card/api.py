@@ -4,8 +4,6 @@ import asyncio
 import time
 from typing import Any
 
-from .const import DOMAIN
-
 CACHE_TTL = 5
 ACTIVITY_TTL = 30
 
@@ -29,17 +27,6 @@ def _entity(hass, kind: str):
         if kind == "departures" and ("airport_departures" in entity_id or ("airport" in name and "departure" in name)):
             candidates.append(state)
     return candidates[0] if candidates else None
-
-
-def _flight_key(f: dict[str, Any]) -> str:
-    return str(
-        f.get("id")
-        or f.get("aircraft_icao_24bit")
-        or f.get("aircraft_registration")
-        or f.get("flight_number")
-        or f.get("callsign")
-        or ""
-    ).upper()
 
 
 def _clean_area(f: dict[str, Any]) -> dict[str, Any]:
@@ -90,19 +77,25 @@ def _clean_area(f: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _clean_airport(f: dict[str, Any], direction: str) -> dict[str, Any]:
+def _clean_airport(f: dict[str, Any], direction: str, airport: str) -> dict[str, Any]:
+    remote_code = f.get("airport_code_iata") or f.get("airport_code_icao")
+    remote_city = f.get("airport_city")
     return {
         "fr24_id": f.get("flight_id") or f.get("id"),
+        "hex": None,
         "flight": f.get("flight_number"),
         "callsign": f.get("callsign"),
         "registration": f.get("aircraft_registration"),
         "type": f.get("aircraft_model") or f.get("aircraft_code"),
+        "aircraft_code": f.get("aircraft_code"),
         "airline": f.get("airline_short") or f.get("airline"),
         "airline_full": f.get("airline"),
-        "origin": f.get("airport_code_iata") if direction == "ARRIVALS" else None,
-        "destination": f.get("airport_code_iata") if direction == "DEPARTURES" else None,
-        "origin_city": f.get("airport_city") if direction == "ARRIVALS" else None,
-        "destination_city": f.get("airport_city") if direction == "DEPARTURES" else None,
+        "airline_iata": f.get("airline_iata"),
+        "airline_icao": f.get("airline_icao"),
+        "origin": remote_code if direction == "ARRIVALS" else airport,
+        "destination": airport if direction == "ARRIVALS" else remote_code,
+        "origin_city": remote_city if direction == "ARRIVALS" else airport,
+        "destination_city": airport if direction == "ARRIVALS" else remote_city,
         "scheduled_arrival": f.get("time_scheduled_arrival"),
         "scheduled_departure": f.get("time_scheduled_departure"),
         "estimated_arrival": f.get("time_estimated_arrival"),
@@ -111,31 +104,30 @@ def _clean_airport(f: dict[str, Any], direction: str) -> dict[str, Any]:
         "real_departure": f.get("time_real_departure"),
         "status": f.get("status"),
         "status_text": f.get("status_text"),
-        "source": "FlightRadar24 integration",
+        "is_board_flight": True,
+        "source": "FlightRadar24 airport sensor",
     }
 
 
-def _area_flights(hass) -> list[dict[str, Any]]:
-    state = _entity(hass, "current")
+def _raw_flights(state) -> list[dict[str, Any]]:
     raw = state.attributes.get("flights", []) if state else []
     if isinstance(raw, dict):
         raw = list(raw.values())
-    return [_clean_area(f) for f in raw if isinstance(f, dict)]
+    return [f for f in raw if isinstance(f, dict)]
+
+
+def _area_flights(hass) -> list[dict[str, Any]]:
+    return [_clean_area(f) for f in _raw_flights(_entity(hass, "current"))]
 
 
 def _additional_flights(hass) -> list[dict[str, Any]]:
-    state = _entity(hass, "additional")
-    raw = state.attributes.get("flights", []) if state else []
-    if isinstance(raw, dict):
-        raw = list(raw.values())
-    return [_clean_area(f) for f in raw if isinstance(f, dict)]
+    return [_clean_area(f) for f in _raw_flights(_entity(hass, "additional"))]
 
 
 async def _track_airport(hass, airport: str) -> None:
     """Ask the FR24 integration to populate its airport sensors when available."""
-    states = hass.states.async_all("text")
     target = None
-    for state in states:
+    for state in hass.states.async_all("text"):
         entity_id = state.entity_id.lower()
         name = str(state.attributes.get("friendly_name", "")).lower()
         if "flightradar24" in entity_id and "airport" in entity_id and "track" in entity_id:
@@ -166,42 +158,14 @@ async def _airport_activity(hass, airport: str) -> tuple[list[dict[str, Any]], l
         arrivals_state = _entity(hass, "arrivals")
         departures_state = _entity(hass, "departures")
 
-    def read(state, direction):
-        raw = state.attributes.get("flights", []) if state else []
-        if isinstance(raw, dict):
-            raw = list(raw.values())
-        return [_clean_airport(f, direction) for f in raw if isinstance(f, dict)]
-
-    result = (read(arrivals_state, "ARRIVALS"), read(departures_state, "DEPARTURES"))
+    arrivals = [_clean_airport(f, "ARRIVALS", airport) for f in _raw_flights(arrivals_state)]
+    departures = [_clean_airport(f, "DEPARTURES", airport) for f in _raw_flights(departures_state)]
+    result = (arrivals, departures)
     _cache[cache_key] = (now, result)
     return result
 
 
 _cache: dict[str, tuple[float, Any]] = {}
-
-
-async def get_aircraft(hass, latitude: float, longitude: float, radius: int) -> dict[str, Any]:
-    """Read live aircraft directly from the installed FR24 Home Assistant integration."""
-    cache_key = "area"
-    cached = _cache.get(cache_key)
-    now = time.monotonic()
-    if cached and now - cached[0] < CACHE_TTL:
-        return cached[1]
-
-    aircraft = _area_flights(hass)
-    airport_code = None
-    # The card passes the selected airport coordinates; airport activity is requested separately below.
-    arrivals, departures = await _airport_activity(hass, _airport_from_coordinates(latitude, longitude))
-    result = {
-        "aircraft": aircraft,
-        "arrivals": arrivals,
-        "departures": departures,
-        "provider": "FlightRadar24 Home Assistant integration",
-        "timestamp": time.time(),
-        "radius": radius,
-    }
-    _cache[cache_key] = (now, result)
-    return result
 
 
 def _airport_from_coordinates(latitude: float, longitude: float) -> str:
@@ -213,6 +177,35 @@ def _airport_from_coordinates(latitude: float, longitude: float) -> str:
         "DXB": (25.2532, 55.3657), "SIN": (1.3644, 103.9915), "JFK": (40.6413, -73.7781),
     }
     return min(airports, key=lambda k: (airports[k][0] - latitude) ** 2 + (airports[k][1] - longitude) ** 2)
+
+
+async def get_aircraft(hass, latitude: float, longitude: float, radius: int) -> dict[str, Any]:
+    """Read live aircraft and airport activity from the installed FR24 integration."""
+    now = time.monotonic()
+    cached = _cache.get("area")
+    if cached and now - cached[0] < CACHE_TTL:
+        return cached[1]
+
+    airport = _airport_from_coordinates(latitude, longitude)
+    aircraft = _area_flights(hass)
+    arrivals, departures = await _airport_activity(hass, airport)
+
+    # Airport board flights are included in the response for the UI, but they have
+    # no map coordinates and therefore are ignored by the map renderer.
+    board = arrivals + departures
+    existing = {str(f.get("flight") or "").upper() for f in aircraft}
+    board = [f for f in board if str(f.get("flight") or "").upper() not in existing]
+
+    result = {
+        "aircraft": aircraft + board,
+        "arrivals": arrivals,
+        "departures": departures,
+        "provider": "FlightRadar24 Home Assistant integration",
+        "timestamp": time.time(),
+        "radius": radius,
+    }
+    _cache["area"] = (now, result)
+    return result
 
 
 async def search_aircraft(hass, query: str) -> dict[str, Any]:
@@ -228,10 +221,8 @@ async def search_aircraft(hass, query: str) -> dict[str, Any]:
     if matches:
         return {"aircraft": matches, "provider": "FlightRadar24 Home Assistant integration", "timestamp": time.time()}
 
-    # If the flight is outside the configured area, use the FR24 integration's native Additional tracked feature.
-    states = hass.states.async_all("text")
     target = None
-    for state in states:
+    for state in hass.states.async_all("text"):
         entity_id = state.entity_id.lower()
         name = str(state.attributes.get("friendly_name", "")).lower()
         if "flightradar24" in entity_id and "add_to_track" in entity_id:
@@ -240,6 +231,7 @@ async def search_aircraft(hass, query: str) -> dict[str, Any]:
         if "flightradar24" in name and "add" in name and "track" in name:
             target = state.entity_id
             break
+
     if target and hass.services.has_service("text", "set_value"):
         try:
             await hass.services.async_call("text", "set_value", {"entity_id": target, "value": query}, blocking=True)
@@ -263,13 +255,15 @@ async def get_aircraft_detail(hass, flight: dict[str, Any]) -> dict[str, Any]:
 
 
 async def get_airport_activity(hass, airport: str) -> dict[str, Any]:
-    arrivals, departures = await _airport_activity(hass, airport.strip().upper())
-    return {"airport": airport.upper(), "arrivals": arrivals, "departures": departures, "provider": "FlightRadar24 Home Assistant integration", "timestamp": time.time()}
+    airport = airport.strip().upper()
+    arrivals, departures = await _airport_activity(hass, airport)
+    return {"airport": airport, "arrivals": arrivals, "departures": departures, "provider": "FlightRadar24 Home Assistant integration", "timestamp": time.time()}
 
 
 async def get_aircraft_photo(hass, hex_code: str) -> dict[str, Any]:
     hex_code = str(hex_code or "").strip().upper()
     for flight in _area_flights(hass) + _additional_flights(hass):
         if flight.get("hex") == hex_code:
-            return {"photo": {"src": flight.get("photo_url"), "link": flight.get("photo_url")}}
+            src = flight.get("photo_url")
+            return {"photo": {"src": src, "link": src} if src else None}
     return {"photo": None}
