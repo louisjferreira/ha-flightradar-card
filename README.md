@@ -1,19 +1,19 @@
 # ✈️ FlightRadar Card for Home Assistant
 
-A FlightRadar-style dashboard card for Home Assistant, designed around a full-screen map, live aircraft movement and airport activity.
+A FlightRadar-style dashboard card for Home Assistant, designed around a full-screen map, live aircraft movement, aircraft details and airport activity.
 
 ![FlightRadar Card icon](icon.svg)
 
 ## Features
 
 - 🗺️ Full-screen responsive map centred on a selected airport
-- ✈️ Live aircraft coverage from the **FlightRadar24 API**
+- ✈️ Live flight data from the **Home Assistant FlightRadar24 integration**
 - 🎯 Click aircraft without moving or resizing the map
-- 🛰️ Smooth aircraft movement between API updates
-- 🔎 Search by flight number, callsign or registration
-- 📷 Aircraft photographs from Planespotters when available
+- 🛰️ Smooth aircraft movement between Home Assistant updates
+- 🔎 Search by flight number, callsign, registration or ICAO24
+- 📷 Aircraft photographs from the FlightRadar24 integration when available
 - 📋 Expanded aircraft information including route, registration, ICAO24, altitude, speed and heading
-- 🛬 Airport activity with live arrivals and departures
+- 🛬 Airport arrivals and departures using the FlightRadar24 integration's airport sensors
 - 🛫 Configurable tracked airport
 - 📏 Configurable live-aircraft radius
 - 🔄 Configurable refresh interval
@@ -24,43 +24,30 @@ A FlightRadar-style dashboard card for Home Assistant, designed around a full-sc
 
 ## Data source
 
-FlightRadar Card uses the **official FlightRadar24 API** as its live aviation data provider. The FR24 API provides real-time aircraft movement together with flight number, callsign, origin, destination, registration and aircraft type information.
+The card **does not require a separate FlightRadar24 API token**.
 
-Official documentation: https://fr24api.flightradar24.com/docs/endpoints/overview
+Instead, it reads the flight data already provided to Home Assistant by the HACS **Flightradar24 integration by AlexandrErohin**. That integration exposes detailed flight objects through the `flights` attribute of its sensors, including current position, altitude, speed, heading, aircraft information, route and aircraft photographs.
 
-This replaces the earlier public ADS-B aggregation used during development. The public feeds were useful for proving the map and animation architecture, but their Zimbabwe coverage was not sufficiently close to the FlightRadar24 experience.
+The card also uses the integration's **Airport arrivals** and **Airport departures** sensors for the airport board. If airport tracking has not yet been enabled, the card will attempt to set the integration's airport-tracking text entity automatically.
 
-## FlightRadar24 API setup
+The upstream integration documents the available sensors, flight fields and airport tracking behaviour here:
 
-The FlightRadar24 API is a separate service from a normal FlightRadar24 website subscription. An active API subscription and API token are required.
+https://github.com/AlexandrErohin/home-assistant-flightradar24
 
-1. Create or sign in to a FlightRadar24 API account.
-2. Select an API subscription.
-3. Open **Key management** and create an API token.
-4. In Home Assistant go to **Settings → Devices & services**.
-5. Open **FlightRadar Card** and choose **Configure**.
-6. Enter the API token.
-7. Save and reload the card.
+## Required Home Assistant integration
 
-The token is stored in the Home Assistant config entry and is **not included in the frontend or GitHub repository**.
+Install **Flightradar24** by AlexandrErohin through HACS before using this card.
 
-The current Explorer plan is intended for testing and private/hobby projects and currently provides 30,000 monthly credits, with a promotional allocation of 60,000 credits for qualifying subscriptions during the current promotion period.
+1. Open **HACS → Integrations**.
+2. Search for **Flightradar24**.
+3. Install the integration by AlexandrErohin.
+4. Restart Home Assistant.
+5. Add/configure the Flightradar24 integration.
+6. Set its monitoring location and radius to cover the area you want to display.
 
-## Credit usage
+The card expects the integration to expose a **Current in area** sensor with a `flights` attribute. It also uses the **Additional tracked**, **Airport arrivals** and **Airport departures** sensors when available.
 
-FlightRadar24 charges by returned flight rather than simply by API request. Live Flight Positions Full currently costs 8 credits per returned flight; the card therefore uses a conservative default radius and refresh interval.
-
-The graphical defaults are currently:
-
-| Setting | Default |
-|---|---:|
-| **Tracked airport** | HRE |
-| **Live aircraft radius** | 150 NM |
-| **Refresh interval** | 60 s |
-| **Map zoom** | 7 |
-| **Fill available screen height** | On |
-
-The map interpolates aircraft movement between API updates so a 60-second API refresh does not result in aircraft appearing to jump between positions.
+Home Assistant may localize entity IDs. The card therefore discovers the relevant Flightradar24 sensors by their entity IDs and friendly names rather than requiring hard-coded entity IDs.
 
 ## Installation with HACS
 
@@ -69,11 +56,9 @@ The map interpolates aircraft movement between API updates so a 60-second API re
 3. Select **Integration** as the repository type.
 4. Install **FlightRadar Card**.
 5. Restart Home Assistant.
-6. Go to **Settings → Devices & services → Add Integration**.
-7. Search for **FlightRadar Card** and add the integration.
-8. Enter your FlightRadar24 API token when prompted.
+6. Add **FlightRadar Card** from the dashboard card picker.
 
-The integration registers the Lovelace card frontend automatically. A manual Lovelace resource should not be necessary.
+The card's integration registers the frontend automatically. No separate FlightRadar24 API token is requested by this card.
 
 ## Adding the card
 
@@ -84,84 +69,107 @@ Add a new dashboard card and search for **FlightRadar Card**.
 ```yaml
 type: custom:flightradar-card
 airport: HRE
-radius_nm: 150
-refresh_interval: 60
+radius_nm: 250
+refresh_interval: 10
 zoom: 7
 full_screen: true
 ```
 
-Older nested configurations remain accepted for compatibility.
+The graphical configuration editor exposes the same options.
 
-## Aircraft details
+### Supported airports
 
-Selecting an aircraft uses the FR24 live/full endpoint to provide richer flight information, including:
+The current built-in airport list includes:
+
+`HRE`, `JNB`, `CPT`, `DUR`, `GBE`, `MPM`, `LUN`, `NBO`, `ADD`, `WDH`, `MUB`, `LHR`, `DXB`, `SIN`, `JFK`
+
+The airport selector controls the map centre and the airport activity board. The map itself is **not restricted to flights arriving at or departing from that airport**; all aircraft supplied by the FlightRadar24 integration inside the configured area are displayed.
+
+## Search
+
+The search box accepts:
 
 - Flight number
 - Callsign
-- Operating/marketing airline code
-- Aircraft type
+- Aircraft registration
+- ICAO24
+- Aircraft code
+- Airline
+
+If a matching aircraft is not currently in the configured area, the card can use the FlightRadar24 integration's **Additional tracked** feature to request tracking of the flight. This means the search can find aircraft outside the map area without requiring a second paid API service.
+
+## Aircraft details
+
+Selecting an aircraft displays information such as:
+
+- Flight number
+- Callsign
+- Airline
+- Aircraft model/code
 - Registration
-- ICAO24 hex
-- Origin
-- Destination
-- ETA where available
+- ICAO24
+- Origin and destination
 - Altitude
 - Ground speed
 - Vertical speed
 - Track/heading
 - Squawk
-- Data source
-
-The card can also request an aircraft photograph from the Planespotters public API when one is available.
+- Aircraft category
+- Aircraft photograph when supplied by the integration
 
 ## Airport activity
 
-The backend provides dedicated FR24 live airport filtering for:
+The airport panel provides three views:
 
-- **ARRIVALS** — live aircraft inbound to the selected airport
-- **DEPARTURES** — live aircraft outbound from the selected airport
+- **ALL** — all aircraft currently supplied for the selected area, with route information
+- **ARRIVALS** — flights supplied by the selected airport's FlightRadar24 arrivals sensor
+- **DEPARTURES** — flights supplied by the selected airport's FlightRadar24 departures sensor
 
-This is live operational traffic rather than a fabricated schedule. The FR24 live/full endpoint provides origin and destination fields, making it substantially more reliable than the previous route-enrichment approach.
+The airport board is deliberately separate from the map traffic. A scheduled airport flight can therefore appear on the airport board even when it has no current map coordinates.
 
 ## Map behaviour
 
-The selected airport centres the map and defines the aircraft search area. The airport does **not** filter the map to only flights serving that airport; all FR24 aircraft returned inside the configured geographic radius can be displayed.
+The selected airport centres the map and defines the geographic context for the live traffic returned by the Home Assistant FlightRadar24 integration.
 
-Selecting an aircraft does not rebuild the map, so the map remains stable. Aircraft positions are interpolated visually between live API updates.
+Selecting an aircraft does not rebuild or resize the map. Aircraft markers are updated in place and interpolated visually between data updates, producing a much smoother result than repeatedly rebuilding the map.
+
+The map uses OpenStreetMap tiles and does not require a separate map API token.
 
 ## Future local ADS-B receiver
 
-The provider layer is intentionally separated from the card UI so a future local receiver can be added alongside FR24.
+The provider layer is intentionally separated from the card UI so a future local ADS-B receiver can be added later.
 
 ```text
              FlightRadar Card
                     │
           ┌─────────┴─────────┐
           │                   │
-     FlightRadar24       Local ADS-B
-          API              Receiver
+   HA FlightRadar24       Local ADS-B
+      integration           receiver
           │                   │
           └─────────┬─────────┘
                     ▼
-             Home Assistant
+             Flight data
                     ▼
                 Map + UI
 ```
 
-A local receiver could eventually provide very high-frequency local updates while FR24 remains the wider-area source.
+A local receiver could eventually provide very high-frequency local updates while the FlightRadar24 integration remains the wider-area source.
 
 ## Current limitations
 
-- FlightRadar24 API coverage and data are not guaranteed to be identical to the consumer FlightRadar24 website; FR24 states that the website and API are separate products with overlapping but not identical datasets.
-- API credits are consumed according to returned entities.
+- The card is dependent on the FlightRadar24 Home Assistant integration being installed and receiving data.
+- The number of aircraft displayed is limited by the radius and filters configured in that integration.
+- Airport arrivals/departures require the upstream integration's airport tracking feature.
 - Aircraft photographs are unavailable for some aircraft.
-- Scheduled gate, terminal and timetable information is not currently part of the live aircraft layer.
-- FR24 API data retrieved by the integration is transiently cached only in memory; FR24's API storage rules limit retained API data to 30 days.
+- The card does not attempt to reproduce every feature of the consumer FlightRadar24 website.
 
 ## Roadmap
 
-- [x] FlightRadar24 live aircraft positions
+- [x] FlightRadar24 integration data source
+- [x] Live aircraft positions
 - [x] Flight/registration search
+- [x] Additional tracked search fallback
 - [x] Selected aircraft tracking
 - [x] Aircraft details
 - [x] Aircraft photographs
@@ -173,8 +181,8 @@ A local receiver could eventually provide very high-frequency local updates whil
 - [x] Graphical card configuration
 - [ ] Local ADS-B receiver provider
 - [ ] Optional flight route line display
-- [ ] Scheduled airport board with a dedicated schedule/status API
 - [ ] Expanded airport database
+- [ ] Optional iframe/FR24-style map provider
 
 ## Version
 
