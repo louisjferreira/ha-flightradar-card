@@ -127,17 +127,16 @@ _cache: dict[str, tuple[float, Any]] = {}
 
 def _airport_from_coordinates(latitude: float, longitude: float) -> str:
     airports = {"HRE":(-17.9318,31.0928),"JNB":(-26.1337,28.2420),"CPT":(-33.9715,18.6021),"DUR":(-29.6144,31.1197),"GBE":(-24.5552,25.9182),"MPM":(-25.9208,32.5726),"LUN":(-15.3308,28.4526),"NBO":(-1.3192,36.9278),"ADD":(8.9779,38.7993),"WDH":(-22.4799,17.4709),"MUB":(-19.9726,23.4311),"LHR":(51.4700,-0.4543),"DXB":(25.2532,55.3657),"SIN":(1.3644,103.9915),"JFK":(40.6413,-73.7781)}
-    return min(airports, key=lambda k: (airports[k][0]-latitude)**2 + (airports[k][1]-longitude)**2)
+    return min(airports, key=lambda k:(airports[k][0]-latitude)**2+(airports[k][1]-longitude)**2)
 
 
 async def get_aircraft(hass, latitude: float, longitude: float, radius: int) -> dict[str, Any]:
     now = time.monotonic(); cached = _cache.get("area")
     if cached and now - cached[0] < CACHE_TTL: return cached[1]
     airport = _airport_from_coordinates(latitude, longitude)
-    aircraft = _area_flights(hass); arrivals, departures = await _airport_activity(hass, airport)
-    existing = {str(f.get("flight") or "").upper() for f in aircraft}
-    board = [f for f in arrivals + departures if str(f.get("flight") or "").upper() not in existing]
-    result = {"aircraft": aircraft + board, "arrivals": arrivals, "departures": departures, "provider":"FlightRadar24 Home Assistant integration", "timestamp":time.time(), "radius":radius}
+    aircraft = _area_flights(hass)
+    arrivals, departures = await _airport_activity(hass, airport)
+    result = {"aircraft": aircraft, "arrivals": arrivals, "departures": departures, "provider":"FlightRadar24 Home Assistant integration", "timestamp":time.time(), "radius":radius}
     _cache["area"] = (now, result); return result
 
 
