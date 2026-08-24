@@ -10,6 +10,7 @@
       const original = originalForm.bind(Card);
       Card.getConfigForm = function () {
         const form = original();
+        const originalComputeLabel = form.computeLabel;
         const defaults = { airport: "HRE", radius_nm: 150, refresh_interval: 60, zoom: 7, full_screen: true, airport_activity_hours: 5 };
         for (const item of form.schema || []) {
           if (Object.prototype.hasOwnProperty.call(defaults, item.name)) item.default = defaults[item.name];
@@ -20,10 +21,9 @@
             selector: { number: { min: 1, max: 72, step: 1, mode: "box" } },
           });
         }
-        form.computeLabel = s => ({
-          ...(form.computeLabel ? {} : {}),
-          airport_activity_hours: "Airport activity timeframe (hours)",
-        }[s.name] || (form.computeLabel ? form.computeLabel(s) : s.name));
+        form.computeLabel = s => s.name === "airport_activity_hours"
+          ? "Airport activity timeframe (hours)"
+          : (originalComputeLabel ? originalComputeLabel(s) : s.name);
         return form;
       };
     }
