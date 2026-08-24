@@ -3,6 +3,7 @@
   const boot = () => {
     const Card = customElements.get("flightradar-card");
     if (!Card || Card.__FLIGHTRADAR_VISUAL_PATCHED__) return;
+    const esc = v => String(v ?? "").replace(/[&<>\"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
 
     const originalForm = Card.getConfigForm;
     if (originalForm) {
