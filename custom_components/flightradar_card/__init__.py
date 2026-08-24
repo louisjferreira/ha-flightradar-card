@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import voluptuous as vol
@@ -10,8 +11,35 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 
-from .api import get_aircraft, get_aircraft_detail, get_aircraft_photo, get_airport_activity, search_aircraft
+from .api import (
+    _clean_airport,
+    _entity,
+    _raw_flights,
+    _track_airport,
+    get_aircraft,
+    get_aircraft_detail,
+    get_aircraft_photo,
+    get_airport_activity,
+    search_aircraft,
+)
 from .const import CARD_URL, DOMAIN
+
+
+async def _fresh_airport_activity(hass: HomeAssistant, airport: str) -> dict:
+    """Force the upstream FR24 integration to track the selected airport, then read its feeds."""
+    airport = airport.strip().upper()
+    await _track_airport(hass, airport)
+    await asyncio.sleep(1.5)
+    arrivals_state = _entity(hass, "arrivals")
+    departures_state = _entity(hass, "departures")
+    arrivals = [_clean_airport(f, "ARRIVALS", airport) for f in _raw_flights(arrivals_state)]
+    departures = [_clean_airport(f, "DEPARTURES", airport) for f in _raw_flights(departures_state)]
+    return {
+        "airport": airport,
+        "arrivals": arrivals,
+        "departures": departures,
+        "provider": "FlightRadar24 Home Assistant integration",
+    }
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -55,6 +83,16 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def websocket_get_aircraft(hass: HomeAssistant, connection, msg: dict) -> None:
     try:
         result = await get_aircraft(hass, msg["latitude"], msg["longitude"], msg["radius"])
+        airport = result.get("airport") or ""
+        if not airport:
+            # Derive the tracked airport from the same coordinates used by the card.
+            from .api import _airport_from_coordinates
+            airport = _airport_from_coordinates(msg["latitude"], msg["longitude"])
+        activity = await _fresh_airport_activity(hass, airport)
+        result["arrivals"] = activity["arrivals"]
+        result["departures"] = activity["departures"]
+        result["airport"] = airport
+        result["timestamp"] = __import__("time").time()
         connection.send_result(msg["id"], result)
     except Exception as err:
         connection.send_error(msg["id"], "fr24_unavailable", str(err))
@@ -93,7 +131,8 @@ async def websocket_get_detail(hass: HomeAssistant, connection, msg: dict) -> No
 @websocket_api.async_response
 async def websocket_get_activity(hass: HomeAssistant, connection, msg: dict) -> None:
     try:
-        result = await get_airport_activity(hass, msg["airport"])
+        result = await _fresh_airport_activity(hass, msg["airport"])
+        result["timestamp"] = __import__("time").time()
         connection.send_result(msg["id"], result)
     except Exception as err:
         connection.send_error(msg["id"], "activity_failed", str(err))
