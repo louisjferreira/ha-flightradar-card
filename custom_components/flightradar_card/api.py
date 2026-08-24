@@ -1,160 +1,275 @@
 from __future__ import annotations
 
-import math
+import asyncio
 import time
 from typing import Any
 
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
-
 from .const import DOMAIN
 
-FR24_BASE = "https://fr24api.flightradar24.com/api"
-USER_AGENT = "HomeAssistant-FlightRadar-Card/0.9.3"
-_cache: dict[str, tuple[float, Any]] = {}
+CACHE_TTL = 5
+ACTIVITY_TTL = 30
 
 
-def _token(hass) -> str | None:
-    entries = hass.config_entries.async_entries(DOMAIN)
-    if not entries:
-        return None
-    return entries[0].data.get("api_token")
+def _entity(hass, kind: str):
+    """Find a FlightRadar24 integration sensor without relying on localization."""
+    states = hass.states.async_all("sensor")
+    kind = kind.lower()
+    candidates = []
+    for state in states:
+        entity_id = state.entity_id.lower()
+        name = str(state.attributes.get("friendly_name", "")).lower()
+        if "flightradar24" not in entity_id and "flightradar24" not in name:
+            continue
+        if kind == "current" and ("current_in_area" in entity_id or ("current" in name and "area" in name)):
+            return state
+        if kind == "additional" and ("additional_tracked" in entity_id or ("additional" in name and "tracked" in name)):
+            return state
+        if kind == "arrivals" and ("airport_arrivals" in entity_id or ("airport" in name and "arrival" in name)):
+            candidates.append(state)
+        if kind == "departures" and ("airport_departures" in entity_id or ("airport" in name and "departure" in name)):
+            candidates.append(state)
+    return candidates[0] if candidates else None
 
 
-def _headers(token: str) -> dict[str, str]:
-    return {"Accept": "application/json", "Authorization": f"Bearer {token}", "Accept-Version": "v1", "User-Agent": USER_AGENT}
+def _flight_key(f: dict[str, Any]) -> str:
+    return str(
+        f.get("id")
+        or f.get("aircraft_icao_24bit")
+        or f.get("aircraft_registration")
+        or f.get("flight_number")
+        or f.get("callsign")
+        or ""
+    ).upper()
 
 
-async def _get(hass, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    token = _token(hass)
-    if not token:
-        raise RuntimeError("FlightRadar24 API token is not configured. Open Settings > Devices & services > FlightRadar Card > Configure.")
-    session = async_get_clientsession(hass)
-    async with session.get(f"{FR24_BASE}{path}", params=params or {}, headers=_headers(token), timeout=15) as response:
-        if response.status == 401:
-            raise RuntimeError("FlightRadar24 API token is invalid or expired.")
-        if response.status == 402:
-            raise RuntimeError("FlightRadar24 API credits are exhausted.")
-        if response.status == 403:
-            raise RuntimeError("FlightRadar24 API access is not permitted for this token or endpoint.")
-        response.raise_for_status()
-        return await response.json(content_type=None)
-
-
-def _bounds(lat: float, lon: float, radius_nm: int) -> str:
-    lat_delta = radius_nm / 60.0
-    lon_delta = radius_nm / max(60.0 * math.cos(math.radians(lat)), 1.0)
-    return f"{min(90.0, lat + lat_delta):.5f},{max(-90.0, lat - lat_delta):.5f},{lon - lon_delta:.5f},{lon + lon_delta:.5f}"
-
-
-def _clean(item: dict[str, Any]) -> dict[str, Any]:
+def _clean_area(f: dict[str, Any]) -> dict[str, Any]:
     return {
-        "fr24_id": item.get("fr24_id"),
-        "hex": str(item.get("hex") or "").upper() or None,
-        "flight": item.get("flight"),
-        "callsign": item.get("callsign"),
-        "registration": item.get("reg"),
-        "type": item.get("type"),
-        "airline": item.get("operated_as") or item.get("painted_as"),
-        "lat": item.get("lat"),
-        "lon": item.get("lon"),
-        "altitude": item.get("alt"),
-        "speed_knots": item.get("gspeed"),
-        "vertical_rate": item.get("vspeed"),
-        "track": item.get("track"),
-        "heading": item.get("track"),
-        "squawk": item.get("squawk"),
-        "origin": item.get("orig_iata") or item.get("orig_icao"),
-        "destination": item.get("dest_iata") or item.get("dest_icao"),
-        "origin_icao": item.get("orig_icao"),
-        "destination_icao": item.get("dest_icao"),
-        "eta": item.get("eta"),
-        "source": item.get("source"),
-        "category": item.get("category"),
-        "on_ground": item.get("alt") == 0,
-        "timestamp": item.get("timestamp"),
+        "fr24_id": f.get("id"),
+        "hex": str(f.get("aircraft_icao_24bit") or "").upper() or None,
+        "flight": f.get("flight_number"),
+        "callsign": f.get("callsign"),
+        "registration": f.get("aircraft_registration"),
+        "type": f.get("aircraft_model") or f.get("aircraft_code"),
+        "aircraft_code": f.get("aircraft_code"),
+        "airline": f.get("airline_short") or f.get("airline"),
+        "airline_full": f.get("airline"),
+        "airline_iata": f.get("airline_iata"),
+        "airline_icao": f.get("airline_icao"),
+        "lat": f.get("latitude"),
+        "lon": f.get("longitude"),
+        "altitude": f.get("altitude"),
+        "speed_knots": f.get("ground_speed"),
+        "vertical_rate": f.get("vertical_speed"),
+        "track": f.get("heading"),
+        "heading": f.get("heading"),
+        "squawk": f.get("squawk"),
+        "origin": f.get("airport_origin_code_iata") or f.get("airport_origin_code_icao"),
+        "destination": f.get("airport_destination_code_iata") or f.get("airport_destination_code_icao"),
+        "origin_city": f.get("airport_origin_city"),
+        "destination_city": f.get("airport_destination_city"),
+        "origin_name": f.get("airport_origin_name"),
+        "destination_name": f.get("airport_destination_name"),
+        "origin_lat": f.get("airport_origin_latitude"),
+        "origin_lon": f.get("airport_origin_longitude"),
+        "destination_lat": f.get("airport_destination_latitude"),
+        "destination_lon": f.get("airport_destination_longitude"),
+        "scheduled_departure": f.get("time_scheduled_departure"),
+        "scheduled_arrival": f.get("time_scheduled_arrival"),
+        "estimated_arrival": f.get("time_estimated_arrival"),
+        "estimated_departure": f.get("time_estimated_departure"),
+        "real_departure": f.get("time_real_departure"),
+        "real_arrival": f.get("time_real_arrival"),
+        "photo_url": f.get("aircraft_photo_medium") or f.get("aircraft_photo_large") or f.get("aircraft_photo_small"),
+        "photo_small": f.get("aircraft_photo_small"),
+        "photo_large": f.get("aircraft_photo_large"),
+        "aircraft_category": f.get("aircraft_category"),
+        "distance": f.get("distance"),
+        "on_ground": bool(f.get("on_ground")),
+        "timestamp": f.get("details_updated_at") or f.get("last_updated"),
+        "source": "FlightRadar24 integration",
     }
 
 
-def _data(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    return [_clean(x) for x in payload.get("data", []) if isinstance(x, dict)]
+def _clean_airport(f: dict[str, Any], direction: str) -> dict[str, Any]:
+    return {
+        "fr24_id": f.get("flight_id") or f.get("id"),
+        "flight": f.get("flight_number"),
+        "callsign": f.get("callsign"),
+        "registration": f.get("aircraft_registration"),
+        "type": f.get("aircraft_model") or f.get("aircraft_code"),
+        "airline": f.get("airline_short") or f.get("airline"),
+        "airline_full": f.get("airline"),
+        "origin": f.get("airport_code_iata") if direction == "ARRIVALS" else None,
+        "destination": f.get("airport_code_iata") if direction == "DEPARTURES" else None,
+        "origin_city": f.get("airport_city") if direction == "ARRIVALS" else None,
+        "destination_city": f.get("airport_city") if direction == "DEPARTURES" else None,
+        "scheduled_arrival": f.get("time_scheduled_arrival"),
+        "scheduled_departure": f.get("time_scheduled_departure"),
+        "estimated_arrival": f.get("time_estimated_arrival"),
+        "estimated_departure": f.get("time_estimated_departure"),
+        "real_arrival": f.get("time_real_arrival"),
+        "real_departure": f.get("time_real_departure"),
+        "status": f.get("status"),
+        "status_text": f.get("status_text"),
+        "source": "FlightRadar24 integration",
+    }
 
 
-async def get_aircraft(hass, latitude: float, longitude: float, radius: int) -> dict[str, Any]:
-    radius = max(10, min(250, int(radius)))
-    cache_key = f"full:{latitude:.4f}:{longitude:.4f}:{radius}"
+def _area_flights(hass) -> list[dict[str, Any]]:
+    state = _entity(hass, "current")
+    raw = state.attributes.get("flights", []) if state else []
+    if isinstance(raw, dict):
+        raw = list(raw.values())
+    return [_clean_area(f) for f in raw if isinstance(f, dict)]
+
+
+def _additional_flights(hass) -> list[dict[str, Any]]:
+    state = _entity(hass, "additional")
+    raw = state.attributes.get("flights", []) if state else []
+    if isinstance(raw, dict):
+        raw = list(raw.values())
+    return [_clean_area(f) for f in raw if isinstance(f, dict)]
+
+
+async def _track_airport(hass, airport: str) -> None:
+    """Ask the FR24 integration to populate its airport sensors when available."""
+    states = hass.states.async_all("text")
+    target = None
+    for state in states:
+        entity_id = state.entity_id.lower()
+        name = str(state.attributes.get("friendly_name", "")).lower()
+        if "flightradar24" in entity_id and "airport" in entity_id and "track" in entity_id:
+            target = state.entity_id
+            break
+        if "flightradar24" in name and "airport" in name and "track" in name:
+            target = state.entity_id
+            break
+    if target and hass.services.has_service("text", "set_value"):
+        await hass.services.async_call("text", "set_value", {"entity_id": target, "value": airport}, blocking=True)
+
+
+async def _airport_activity(hass, airport: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    cache_key = f"activity:{airport}"
+    now = time.monotonic()
     cached = _cache.get(cache_key)
-    if cached and time.monotonic() - cached[0] < 5:
+    if cached and now - cached[0] < ACTIVITY_TTL:
         return cached[1]
-    data = await _get(hass, "/live/flight-positions/full", {"bounds": _bounds(latitude, longitude, radius), "limit": 20})
-    result = {"aircraft": _data(data), "provider": "FlightRadar24", "timestamp": time.time()}
-    _cache[cache_key] = (time.monotonic(), result)
+
+    arrivals_state = _entity(hass, "arrivals")
+    departures_state = _entity(hass, "departures")
+    if not arrivals_state or not departures_state:
+        try:
+            await _track_airport(hass, airport)
+            await asyncio.sleep(1.0)
+        except Exception:
+            pass
+        arrivals_state = _entity(hass, "arrivals")
+        departures_state = _entity(hass, "departures")
+
+    def read(state, direction):
+        raw = state.attributes.get("flights", []) if state else []
+        if isinstance(raw, dict):
+            raw = list(raw.values())
+        return [_clean_airport(f, direction) for f in raw if isinstance(f, dict)]
+
+    result = (read(arrivals_state, "ARRIVALS"), read(departures_state, "DEPARTURES"))
+    _cache[cache_key] = (now, result)
     return result
 
 
-async def _full_search(hass, query: str) -> list[dict[str, Any]]:
-    for params in ({"callsigns": query, "limit": 20}, {"registrations": query, "limit": 20}, {"flights": query, "limit": 20}):
-        try:
-            flights = _data(await _get(hass, "/live/flight-positions/full", params))
-            if flights:
-                return flights
-        except Exception:
-            continue
-    return []
+_cache: dict[str, tuple[float, Any]] = {}
+
+
+async def get_aircraft(hass, latitude: float, longitude: float, radius: int) -> dict[str, Any]:
+    """Read live aircraft directly from the installed FR24 Home Assistant integration."""
+    cache_key = "area"
+    cached = _cache.get(cache_key)
+    now = time.monotonic()
+    if cached and now - cached[0] < CACHE_TTL:
+        return cached[1]
+
+    aircraft = _area_flights(hass)
+    airport_code = None
+    # The card passes the selected airport coordinates; airport activity is requested separately below.
+    arrivals, departures = await _airport_activity(hass, _airport_from_coordinates(latitude, longitude))
+    result = {
+        "aircraft": aircraft,
+        "arrivals": arrivals,
+        "departures": departures,
+        "provider": "FlightRadar24 Home Assistant integration",
+        "timestamp": time.time(),
+        "radius": radius,
+    }
+    _cache[cache_key] = (now, result)
+    return result
+
+
+def _airport_from_coordinates(latitude: float, longitude: float) -> str:
+    airports = {
+        "HRE": (-17.9318, 31.0928), "JNB": (-26.1337, 28.2420), "CPT": (-33.9715, 18.6021),
+        "DUR": (-29.6144, 31.1197), "GBE": (-24.5552, 25.9182), "MPM": (-25.9208, 32.5726),
+        "LUN": (-15.3308, 28.4526), "NBO": (-1.3192, 36.9278), "ADD": (8.9779, 38.7993),
+        "WDH": (-22.4799, 17.4709), "MUB": (-19.9726, 23.4311), "LHR": (51.4700, -0.4543),
+        "DXB": (25.2532, 55.3657), "SIN": (1.3644, 103.9915), "JFK": (40.6413, -73.7781),
+    }
+    return min(airports, key=lambda k: (airports[k][0] - latitude) ** 2 + (airports[k][1] - longitude) ** 2)
 
 
 async def search_aircraft(hass, query: str) -> dict[str, Any]:
     query = query.strip().upper()
     if not query:
-        return {"aircraft": [], "provider": "FlightRadar24"}
-    flights = await _full_search(hass, query)
-    return {"aircraft": flights, "provider": "FlightRadar24", "timestamp": time.time(), **({} if flights else {"error": f"No live FlightRadar24 aircraft found for {query}"})}
+        return {"aircraft": [], "provider": "FlightRadar24 Home Assistant integration"}
+
+    all_flights = _area_flights(hass) + _additional_flights(hass)
+    matches = [
+        f for f in all_flights
+        if any(query in str(f.get(k) or "").upper() for k in ("flight", "callsign", "registration", "hex", "airline", "aircraft_code"))
+    ]
+    if matches:
+        return {"aircraft": matches, "provider": "FlightRadar24 Home Assistant integration", "timestamp": time.time()}
+
+    # If the flight is outside the configured area, use the FR24 integration's native Additional tracked feature.
+    states = hass.states.async_all("text")
+    target = None
+    for state in states:
+        entity_id = state.entity_id.lower()
+        name = str(state.attributes.get("friendly_name", "")).lower()
+        if "flightradar24" in entity_id and "add_to_track" in entity_id:
+            target = state.entity_id
+            break
+        if "flightradar24" in name and "add" in name and "track" in name:
+            target = state.entity_id
+            break
+    if target and hass.services.has_service("text", "set_value"):
+        try:
+            await hass.services.async_call("text", "set_value", {"entity_id": target, "value": query}, blocking=True)
+            for _ in range(4):
+                await asyncio.sleep(1.5)
+                tracked = _additional_flights(hass)
+                matches = [
+                    f for f in tracked
+                    if any(query in str(f.get(k) or "").upper() for k in ("flight", "callsign", "registration", "hex", "airline", "aircraft_code"))
+                ]
+                if matches:
+                    return {"aircraft": matches, "provider": "FlightRadar24 Home Assistant integration", "timestamp": time.time()}
+        except Exception:
+            pass
+
+    return {"aircraft": [], "provider": "FlightRadar24 Home Assistant integration", "error": f"No live FlightRadar24 aircraft found for {query}"}
 
 
 async def get_aircraft_detail(hass, flight: dict[str, Any]) -> dict[str, Any]:
-    query = str(flight.get("callsign") or flight.get("flight") or flight.get("registration") or "").strip().upper()
-    if not query:
-        return flight
-    flights = await _full_search(hass, query)
-    if not flights:
-        return flight
-    target = flight.get("fr24_id") or flight.get("hex") or flight.get("registration")
-    return next((item for item in flights if target and target in (item.get("fr24_id"), item.get("hex"), item.get("registration"))), flights[0])
+    return flight
 
 
 async def get_airport_activity(hass, airport: str) -> dict[str, Any]:
-    airport = airport.strip().upper()
-    cache_key = f"activity:{airport}"
-    cached = _cache.get(cache_key)
-    if cached and time.monotonic() - cached[0] < 180:
-        return cached[1]
-    arrivals = await _get(hass, "/live/flight-positions/full", {"airports": f"inbound:{airport}", "limit": 20})
-    departures = await _get(hass, "/live/flight-positions/full", {"airports": f"outbound:{airport}", "limit": 20})
-    result = {"airport": airport, "arrivals": _data(arrivals), "departures": _data(departures), "provider": "FlightRadar24", "timestamp": time.time()}
-    _cache[cache_key] = (time.monotonic(), result)
-    return result
+    arrivals, departures = await _airport_activity(hass, airport.strip().upper())
+    return {"airport": airport.upper(), "arrivals": arrivals, "departures": departures, "provider": "FlightRadar24 Home Assistant integration", "timestamp": time.time()}
 
 
 async def get_aircraft_photo(hass, hex_code: str) -> dict[str, Any]:
     hex_code = str(hex_code or "").strip().upper()
-    if not hex_code:
-        return {"photo": None}
-    cache_key = f"photo:{hex_code}"
-    cached = _cache.get(cache_key)
-    if cached and time.monotonic() - cached[0] < 3600:
-        return cached[1]
-    try:
-        session = async_get_clientsession(hass)
-        async with session.get(f"https://api.planespotters.net/pub/photos/hex/{hex_code}", headers={"Accept": "application/json", "User-Agent": USER_AGENT}, timeout=10) as response:
-            response.raise_for_status()
-            data = await response.json(content_type=None)
-        photos = data.get("photos", []) if isinstance(data, dict) else []
-        photo = None
-        if photos:
-            item = photos[0]
-            thumb = item.get("thumbnail", {}) or {}
-            photo = {"src": thumb.get("src") or item.get("src"), "link": item.get("link"), "photographer": item.get("photographer")}
-    except Exception:
-        photo = None
-    result = {"photo": photo}
-    _cache[cache_key] = (time.monotonic(), result)
-    return result
+    for flight in _area_flights(hass) + _additional_flights(hass):
+        if flight.get("hex") == hex_code:
+            return {"photo": {"src": flight.get("photo_url"), "link": flight.get("photo_url")}}
+    return {"photo": None}
