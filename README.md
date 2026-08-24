@@ -2,8 +2,6 @@
 
 A FlightRadar-style dashboard card for Home Assistant, designed around a full-screen map, live aircraft movement, aircraft details and airport activity.
 
-![FlightRadar Card icon](icon.svg)
-
 ## Features
 
 - 🗺️ Full-screen responsive map centred on a selected airport
@@ -161,7 +159,7 @@ The map uses OpenStreetMap tiles and does not require a separate map API token.
 
 ## Version
 
-**0.9.6**
+**0.9.7**
 
 ## License
 
