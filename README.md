@@ -2,18 +2,21 @@
 
 A FlightRadar-style dashboard card for Home Assistant, designed around a full-screen map, live aircraft movement, aircraft details and airport activity.
 
+![FlightRadar Card dashboard example](custom_components/flightradar_card/frontend/assets/readme-dashboard.svg)
+
 ## Features
 
 - 🗺️ Full-screen responsive map centred on a selected airport
 - ✈️ Live flight data from the **Home Assistant FlightRadar24 integration**
 - 🎯 Click aircraft without moving or resizing the map
 - 🛰️ Smooth aircraft movement between Home Assistant updates
-- 🛩️ Aircraft markers use model/category-aware silhouettes and scale
+- 🛩️ High-quality aircraft SVG markers matched to aircraft category and size
 - 🔎 Search by flight number, callsign, registration or ICAO24
 - 📷 Aircraft photographs from the FlightRadar24 integration when available
 - 📋 Expanded aircraft information including route, registration, ICAO24, altitude, speed and heading
 - 🛬 Combined airport arrivals/departures board sorted chronologically by flight time
 - 🛫 Configurable tracked airport
+- ⏱️ Configurable airport activity timeframe
 - 📏 Configurable live-aircraft radius
 - 🔄 Configurable refresh interval
 - 🔍 Configurable map zoom
@@ -41,8 +44,6 @@ Install **Flightradar24** by AlexandrErohin through HACS before using this card.
 
 The card expects the integration to expose a **Current in area** sensor with a `flights` attribute. It also uses **Additional tracked**, **Airport arrivals** and **Airport departures** when available.
 
-Home Assistant may localize entity IDs. The card therefore discovers the relevant Flightradar24 sensors by their entity IDs and friendly names rather than requiring hard-coded entity IDs.
-
 ## Installation with HACS
 
 1. Open **HACS** in Home Assistant.
@@ -66,6 +67,7 @@ airport: HRE
 radius_nm: 250
 refresh_interval: 10
 zoom: 7
+activity_hours: 5
 full_screen: true
 ```
 
@@ -113,6 +115,8 @@ Selecting an aircraft displays information such as:
 
 The airport panel shows **one combined chronological board** for the selected airport. Arrivals and departures are mixed together and sorted by the relevant flight time.
 
+The activity timeframe is configurable. For example, setting `activity_hours: 5` shows only flights scheduled in the next five hours, while a larger value can be used when a longer board is required.
+
 Each row shows:
 
 - Time
@@ -123,11 +127,15 @@ Each row shows:
 
 The board is filtered to the selected airport only. For arrivals, the selected airport must be the destination; for departures, it must be the origin. The card also forces the upstream FlightRadar24 integration to track the selected airport before refreshing the airport feeds.
 
+Rows in the activity board are clickable and select the corresponding aircraft when live flight data for that flight is available.
+
 ## Map behaviour
 
 The selected airport centres the map and provides the geographic context for the live traffic returned by the Home Assistant FlightRadar24 integration.
 
 Selecting an aircraft does not recenter, rebuild or resize the map. Aircraft markers are refreshed from the same FlightRadar24 data source and their movement is visually smoothed between updates.
+
+Aircraft markers use dedicated SVG artwork for large jets, medium/large jets, single-prop aircraft and twin-prop aircraft. The marker is rotated to match the aircraft's current heading and the selected aircraft is highlighted separately.
 
 The map uses OpenStreetMap tiles and does not require a separate map API token.
 
@@ -155,6 +163,8 @@ The map uses OpenStreetMap tiles and does not require a separate map API token.
 - [x] All-aircraft map traffic
 - [x] Aircraft model-aware map icons
 - [x] Chronological combined airport board
+- [x] Configurable airport activity timeframe
+- [x] Click-to-select from airport activity
 - [x] Graphical card configuration
 - [ ] Local ADS-B receiver provider
 - [ ] Optional flight route line display
@@ -163,7 +173,7 @@ The map uses OpenStreetMap tiles and does not require a separate map API token.
 
 ## Version
 
-**0.9.8**
+**1.0.3**
 
 ## License
 
