@@ -1,7 +1,7 @@
 {
   "domain": "flightradar_card",
   "name": "FlightRadar Card",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "documentation": "https://github.com/louisjferreira/ha-flightradar-card",
   "requirements": [],
   "codeowners": ["@louisjferreira"],
