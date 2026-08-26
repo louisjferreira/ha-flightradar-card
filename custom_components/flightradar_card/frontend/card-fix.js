@@ -88,7 +88,7 @@
         if (!style) {
           style = document.createElement("style");
           style.id = "fr24-icon-fix";
-          style.textContent = `.aircraft-icon{width:34px!important;height:34px!important;display:block!important;position:absolute!important;pointer-events:auto!important;transform-origin:50% 50%!important;filter:drop-shadow(0 2px 3px rgba(0,0,0,.75))}.aircraft-icon svg{width:100%!important;height:100%!important;display:block!important;overflow:visible!important}.traffic-row{grid-template-columns:55px 48px 72px 1fr 72px!important}`;
+          style.textContent = `.aircraft-icon{width:34px!important;height:34px!important;display:block!important;position:absolute!important;pointer-events:auto!important;transform-origin:50% 50%!important;filter:drop-shadow(0 2px 3px rgba(0,0,0,.75))}.aircraft-icon svg{width:100%!important;height:100%!important;display:block!important;overflow:visible!important}.traffic{width:max-content!important;min-width:0!important;max-width:calc(100% - 24px)!important;box-sizing:border-box!important}.traffic-row{grid-template-columns:max-content max-content max-content max-content max-content!important;white-space:nowrap!important;cursor:pointer!important}.traffic-row:hover{background:#2b333a!important}`;
           root.appendChild(style);
         }
         const icons = [...root.querySelectorAll(".aircraft-icon")];
@@ -129,6 +129,28 @@
       ].sort((a, b) => activityTime(a) - activityTime(b));
     };
 
+    Card.prototype._selectActivityFlight = async function (flight) {
+      const value = v => String(v ?? "").trim().toUpperCase();
+      const candidates = [flight?.flight, flight?.callsign, flight?.registration, flight?.hex].map(value).filter(Boolean);
+      const live = Array.isArray(this._flights) ? this._flights.find(f => {
+        const values = [f?.flight, f?.callsign, f?.registration, f?.hex].map(value);
+        return candidates.some(candidate => values.includes(candidate));
+      }) : null;
+
+      if (live) {
+        this._selected = live;
+        this._photo = null;
+        this._photoHex = null;
+        if (typeof this._loadPhoto === "function") this._loadPhoto(live);
+        this._updateSelected();
+        this._drawMap();
+        return;
+      }
+
+      const query = flight?.flight || flight?.callsign || flight?.registration || flight?.hex;
+      if (query && typeof this._search === "function") await this._search(query);
+    };
+
     Card.prototype._updateTraffic = function () {
       const p = this.shadowRoot?.getElementById("trafficPanel");
       if (!p) return;
@@ -148,16 +170,23 @@
       list.sort((a, b) => activityTime(a) - activityTime(b));
       list = list.slice(0, 100);
 
-      const rows = list.map(f => {
+      const rows = list.map((f, index) => {
         const timeValue = activityTime(f);
         const time = Number.isFinite(timeValue) && timeValue < Number.MAX_SAFE_INTEGER
           ? new Date(timeValue * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
           : "--:--";
         const arrival = f.direction === "ARRIVAL";
-        return `<div class="traffic-row"><span>${time}</span><span class="${arrival ? "dir-arr" : "dir-dep"}">${arrival ? "ARR" : "DEP"}</span><span class="callsign">${esc(f.flight || f.callsign || "—")}</span><span class="route-code">${esc(f.origin || "—")} → ${esc(f.destination || "—")}</span><span>${esc(f.type || f.aircraft_code || "—")}</span></div>`;
+        return `<div class="traffic-row" data-activity-index="${index}" title="Click to select this aircraft"><span>${time}</span><span class="${arrival ? "dir-arr" : "dir-dep"}">${arrival ? "ARR" : "DEP"}</span><span class="callsign">${esc(f.flight || f.callsign || "—")}</span><span class="route-code">${esc(f.origin || "—")} → ${esc(f.destination || "—")}</span><span>${esc(f.type || f.aircraft_code || "—")}</span></div>`;
       }).join("");
 
       p.innerHTML = `<div class="traffic-head"><span>${esc(airport)} · Airport Activity</span><span class="traffic-sub">Next ${hours}h · ${list.length} flights</span></div>${rows || `<div class="empty">${this._error ? esc(this._error) : `No airport activity in the next ${hours} hours`}</div>`}`;
+      p.querySelectorAll(".traffic-row").forEach(row => {
+        row.addEventListener("click", () => {
+          const index = Number(row.dataset.activityIndex);
+          const flight = list[index];
+          if (flight) this._selectActivityFlight(flight);
+        });
+      });
     };
 
     Card.__FLIGHTRADAR_VISUAL_PATCHED__ = true;
