@@ -37,46 +37,27 @@
       };
     }
 
-    const modelKind = f => {
+    // Use the supplied aircraft silhouettes. They are intentionally simple and
+    // readable at map zoom levels, while retaining different proportions for
+    // large jets, medium/regional jets, turboprops and light aircraft.
+    const iconFor = f => {
       const code = String(f?.aircraft_code || f?.type || "").toUpperCase();
       const cat = String(f?.aircraft_category || "").toLowerCase();
-      if (/HELI|H60|H70|H80|H90|EC|AS|AW|B06|R22|R44/.test(code) || cat.includes("helicopter")) return "heli";
-      if (/AT4|AT7|AT72|DH8|Q4|SF3|F50|BE/.test(code) || cat.includes("turboprop")) return "turboprop";
-      if (/A380|A340|A350|A330|A310|A300|B747|B767|B777|B787|B788|B789/.test(code)) return "widebody";
-      if (/E17|E18|E19|E2|CRJ|ERJ|ARJ|RJ/.test(code)) return "regional";
-      if (/A31|A32|A20|A21|A22|A23|A24|A25|A3[0-9]|B73|B37|B38|B39|B7[0-9]|MD8|MD9|DC9/.test(code)) return "narrowbody";
-      return "generic";
-    };
-
-    const modelScale = f => {
-      const code = String(f?.aircraft_code || f?.type || "").toUpperCase();
-      if (/A380|B747/.test(code)) return 1.28;
-      if (/A330|A340|A350|B767|B777|B787/.test(code)) return 1.16;
-      if (/A31|A32|A20|A21|A22|A23|A24|A25|B73|B37|B38|B39|B7[0-9]/.test(code)) return 1.02;
-      if (/E17|E18|E19|E2|CRJ|ERJ|ARJ|RJ/.test(code)) return .88;
-      if (/AT4|AT7|AT72|DH8|Q4|SF3|F50/.test(code)) return .90;
-      if (/H60|H70|H80|H90|EC|AS|AW|R22|R44/.test(code)) return .72;
-      return .96;
-    };
-
-    const svgFor = (f, selected) => {
-      const kind = modelKind(f);
-      const fill = selected ? "#ffd33d" : "#ffffff";
-      const stroke = selected ? "#fff0a0" : "#1d252d";
-      let body;
-      if (kind === "heli") {
-        body = `<g fill="none" stroke="${stroke}" stroke-width="2.4" stroke-linecap="round"><path d="M50 23v20M43 43h14M50 23l-7 6M50 23l7 6"/><path d="M15 13h70M50 13v10"/><path d="M50 43v9"/></g><ellipse cx="50" cy="25" rx="5" ry="8" fill="${fill}" stroke="${stroke}" stroke-width="2"/>`;
-      } else if (kind === "turboprop") {
-        body = `<path d="M50 4c3 0 5 3 5 7v16l24 10v6L55 40v11h7v5H38v-5h7V40L21 43v-6l24-10V11c0-4 2-7 5-7z" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/><circle cx="17" cy="40" r="5" fill="none" stroke="${stroke}" stroke-width="2"/><circle cx="83" cy="40" r="5" fill="none" stroke="${stroke}" stroke-width="2"/>`;
-      } else if (kind === "widebody") {
-        body = `<path d="M50 2c5 0 8 5 8 12v13l34 15v8L58 45v11h10v7H32v-7h10V45L8 50v-8l34-15V14c0-7 3-12 8-12z" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/><path d="M38 28h24l-5-13h-5l-2 13z" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/><circle cx="30" cy="44" r="3" fill="${stroke}"/><circle cx="70" cy="44" r="3" fill="${stroke}"/>`;
-      } else if (kind === "regional") {
-        body = `<path d="M50 4c4 0 6 4 6 9v15l23 10v6L56 41v13h8v6H36v-6h8V41L21 44v-6l23-10V13c0-5 2-9 6-9z" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/><path d="M44 26h12l-3-9h-6z" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`;
-      } else {
-        body = `<path d="M50 3c4 0 6 4 6 9v16l29 13v7L56 43v12h9v6H35v-6h9V43L15 48v-7l29-13V12c0-5 2-9 6-9z" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linejoin="round"/><path d="M44 25h12l-3-10h-6z" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`;
+      if (/AT4|AT7|AT72|AT43|AT45|AT46|AT75|AT76|DH8|Q4|SF3|F50/.test(code) || cat.includes("turboprop")) {
+        return { src: "/flightradar_card/assets/twin-prop-small.svg", scale: 0.88, kind: "twin-prop" };
       }
-      return `<svg viewBox="0 0 100 70" aria-label="${String(f?.type || f?.aircraft_code || "Aircraft").replace(/"/g, "&quot;")}">${body}</svg>`;
+      if (/C1[0-9]|C2[0-9]|C3[0-9]|PA[0-9]|SR2[0-9]|DA[0-9]|TB[0-9]|R22|R44|R4[0-9]|H60|H70|H80|H90|EC|AS|AW/.test(code) || cat.includes("light") || cat.includes("helicopter")) {
+        return { src: cat.includes("helicopter") || /H60|H70|H80|H90|EC|AS|AW|R22|R44/.test(code)
+          ? "/flightradar_card/assets/single-prop-small.svg"
+          : "/flightradar_card/assets/single-prop-small.svg", scale: 0.72, kind: "light" };
+      }
+      if (/A380|A340|A350|A330|A310|A300|B747|B767|B777|B787|B788|B789/.test(code)) {
+        return { src: "/flightradar_card/assets/plane-large.svg", scale: 1.16, kind: "large" };
+      }
+      return { src: "/flightradar_card/assets/plane-medium-large.svg", scale: /E17|E18|E19|E2|CRJ|ERJ|ARJ|RJ/.test(code) ? 0.88 : 1.0, kind: "medium" };
     };
+
+    const modelScale = f => iconFor(f).scale;
 
     const originalDrawMap = Card.prototype._drawMap;
     if (originalDrawMap) {
@@ -88,7 +69,7 @@
         if (!style) {
           style = document.createElement("style");
           style.id = "fr24-icon-fix";
-          style.textContent = `.aircraft-icon{width:34px!important;height:34px!important;display:block!important;position:absolute!important;pointer-events:auto!important;transform-origin:50% 50%!important;filter:drop-shadow(0 2px 3px rgba(0,0,0,.75))}.aircraft-icon svg{width:100%!important;height:100%!important;display:block!important;overflow:visible!important}.traffic{width:max-content!important;min-width:0!important;max-width:calc(100% - 24px)!important;box-sizing:border-box!important}.traffic-row{grid-template-columns:max-content max-content max-content max-content max-content!important;white-space:nowrap!important;cursor:pointer!important}.traffic-row:hover{background:#2b333a!important}`;
+          style.textContent = `.aircraft-icon{width:42px!important;height:42px!important;display:block!important;position:absolute!important;pointer-events:auto!important;transform-origin:50% 50%!important;filter:drop-shadow(0 2px 3px rgba(0,0,0,.75))}.aircraft-icon img{width:100%!important;height:100%!important;display:block!important;object-fit:contain!important;overflow:visible!important}.aircraft-icon.is-selected img{filter:hue-rotate(205deg) saturate(1.35) brightness(1.15) drop-shadow(0 0 3px rgba(255,210,45,.95))}.traffic{width:max-content!important;min-width:0!important;max-width:calc(100% - 24px)!important;box-sizing:border-box!important}.traffic-row{grid-template-columns:max-content max-content max-content max-content max-content!important;white-space:nowrap!important;cursor:pointer!important}.traffic-row:hover{background:#2b333a!important}`;
           root.appendChild(style);
         }
         const icons = [...root.querySelectorAll(".aircraft-icon")];
@@ -99,12 +80,13 @@
           if (!f) return;
           const id = this._id ? this._id(f) : (f.hex || f.flight || f.registration);
           const selected = id && selectedId && id === selectedId;
-          const scale = modelScale(f);
+          const asset = iconFor(f);
           const rotation = Number(f.track ?? f.heading ?? 0) || 0;
-          icon.innerHTML = svgFor(f, selected);
-          icon.style.width = "34px";
-          icon.style.height = "34px";
-          icon.style.transform = `translate(-50%,-50%) rotate(${rotation}deg) scale(${scale})`;
+          icon.classList.toggle("is-selected", Boolean(selected));
+          icon.innerHTML = `<img src="${asset.src}" alt="${esc(f?.type || f?.aircraft_code || "Aircraft")}" draggable="false">`;
+          icon.style.width = "42px";
+          icon.style.height = "42px";
+          icon.style.transform = `translate(-50%,-50%) rotate(${rotation}deg) scale(${modelScale(f)})`;
           icon.title = `${f.type || f.aircraft_code || "Aircraft"} · ${f.flight || f.callsign || f.registration || ""}`;
         });
       };
