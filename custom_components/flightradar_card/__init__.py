@@ -47,6 +47,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     loader_path = frontend_path / "card-loader.js"
     card_path = frontend_path / "flightradar-card.js"
     fix_path = frontend_path / "card-fix.js"
+    assets_path = frontend_path / "assets"
     static_paths = []
     if loader_path.exists():
         static_paths.append(StaticPathConfig("/flightradar_card/card-loader.js", str(loader_path), cache_headers=False))
@@ -54,6 +55,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         static_paths.append(StaticPathConfig("/flightradar_card/flightradar-card.js", str(card_path), cache_headers=False))
     if fix_path.exists():
         static_paths.append(StaticPathConfig("/flightradar_card/card-fix.js", str(fix_path), cache_headers=False))
+    if assets_path.exists():
+        static_paths.append(StaticPathConfig("/flightradar_card/assets", str(assets_path), cache_headers=False))
     if static_paths:
         await hass.http.async_register_static_paths(static_paths)
         add_extra_js_url(hass, CARD_URL)
@@ -85,7 +88,6 @@ async def websocket_get_aircraft(hass: HomeAssistant, connection, msg: dict) -> 
         result = await get_aircraft(hass, msg["latitude"], msg["longitude"], msg["radius"])
         airport = result.get("airport") or ""
         if not airport:
-            # Derive the tracked airport from the same coordinates used by the card.
             from .api import _airport_from_coordinates
             airport = _airport_from_coordinates(msg["latitude"], msg["longitude"])
         activity = await _fresh_airport_activity(hass, airport)
