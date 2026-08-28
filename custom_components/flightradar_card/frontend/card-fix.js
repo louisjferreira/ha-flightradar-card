@@ -47,9 +47,7 @@
         return { src: "/flightradar_card/assets/twin-prop-small.svg", scale: 0.88, kind: "twin-prop" };
       }
       if (/C1[0-9]|C2[0-9]|C3[0-9]|PA[0-9]|SR2[0-9]|DA[0-9]|TB[0-9]|R22|R44|R4[0-9]|H60|H70|H80|H90|EC|AS|AW/.test(code) || cat.includes("light") || cat.includes("helicopter")) {
-        return { src: cat.includes("helicopter") || /H60|H70|H80|H90|EC|AS|AW|R22|R44/.test(code)
-          ? "/flightradar_card/assets/single-prop-small.svg"
-          : "/flightradar_card/assets/single-prop-small.svg", scale: 0.72, kind: "light" };
+        return { src: "/flightradar_card/assets/chopper.svg", scale: 0.72, kind: "helicopter" };
       }
       if (/A380|A340|A350|A330|A310|A300|B747|B767|B777|B787|B788|B789/.test(code)) {
         return { src: "/flightradar_card/assets/plane-large.svg", scale: 1.16, kind: "large" };
