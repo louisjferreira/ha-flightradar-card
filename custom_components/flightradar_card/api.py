@@ -56,6 +56,13 @@ def _clean_area(f: dict[str, Any]) -> dict[str, Any]:
         "photo_url": f.get("aircraft_photo_medium") or f.get("aircraft_photo_large") or f.get("aircraft_photo_small"),
         "photo_small": f.get("aircraft_photo_small"), "photo_large": f.get("aircraft_photo_large"),
         "aircraft_category": f.get("aircraft_category"), "distance": f.get("distance"),
+        "owner": f.get("aircraft_owner") or f.get("owner") or f.get("registered_owner"),
+        "operator": f.get("aircraft_operator") or f.get("operator"),
+        "first_flight_date": f.get("first_flight_date") or f.get("aircraft_first_flight_date"),
+        "aircraft_age": f.get("aircraft_age") or f.get("age"),
+        "aircraft_manufacturer": f.get("aircraft_manufacturer") or f.get("manufacturer"),
+        "aircraft_series": f.get("aircraft_series") or f.get("aircraft_variant"),
+        "registration_country": f.get("registration_country") or f.get("country"),
         "on_ground": bool(f.get("on_ground")), "timestamp": f.get("details_updated_at") or f.get("last_updated"),
         "source": "FlightRadar24 integration",
     }
