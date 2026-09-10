@@ -2,7 +2,7 @@
 (function () {
   if (window.__FLIGHTRADAR_CARD_LOADED__) return;
   window.__FLIGHTRADAR_CARD_LOADED__ = true;
-  const version = "1.0.2";
+  const version = "1.0.3";
   const loadScript = async (path) => {
     const response = await fetch(`${path}?v=${version}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`FlightRadar Card HTTP ${response.status}`);
@@ -15,6 +15,7 @@
     try {
       await loadScript("/flightradar_card/flightradar-card.js");
       await loadScript("/flightradar_card/card-fix.js");
+      await loadScript("/flightradar_card/map-controls.js");
     } catch (error) { console.error("[FlightRadar Card] Failed to load card:", error); }
   })();
 })();
