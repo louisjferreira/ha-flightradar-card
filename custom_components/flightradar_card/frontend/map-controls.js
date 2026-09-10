@@ -74,6 +74,9 @@
       };
 
       map.addEventListener("pointerdown", event => {
+        // Aircraft markers own their click interaction. Do not capture the
+        // pointer for map dragging when the user starts on an aircraft.
+        if (event.target?.closest?.(".aircraft")) return;
         if (event.pointerType === "mouse" && event.button !== 0) return;
         dragging = true;
         pointerId = event.pointerId;
@@ -144,8 +147,6 @@
 
     Card.__FLIGHTRADAR_MAP_CONTROLS__ = true;
 
-    // The card may have rendered before this helper was loaded. Initialise
-    // controls on any existing card instances now that the prototype is patched.
     document.querySelectorAll("flightradar-card").forEach(card => {
       try { card._enableMapControls(); } catch (error) {
         console.warn("[FlightRadar Card] Map controls initialisation failed:", error);
