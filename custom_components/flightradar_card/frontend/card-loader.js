@@ -2,7 +2,7 @@
 (function () {
   if (window.__FLIGHTRADAR_CARD_LOADED__) return;
   window.__FLIGHTRADAR_CARD_LOADED__ = true;
-  const version = "1.1.0-dev";
+  const version = "1.1.0-dev.4";
   (async () => {
     try {
       await import(`/flightradar_card/flightradar-card.js?v=${version}`);
