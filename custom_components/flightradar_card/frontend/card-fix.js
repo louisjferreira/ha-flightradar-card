@@ -37,9 +37,6 @@
       };
     }
 
-    // Use the supplied aircraft silhouettes. They are intentionally simple and
-    // readable at map zoom levels, while retaining different proportions for
-    // large jets, medium/regional jets, turboprops and light aircraft.
     const iconFor = f => {
       const code = String(f?.aircraft_code || f?.type || "").toUpperCase();
       const cat = String(f?.aircraft_category || "").toLowerCase();
@@ -70,7 +67,7 @@
         if (!style) {
           style = document.createElement("style");
           style.id = "fr24-icon-fix";
-          style.textContent = `.aircraft-icon{width:42px!important;height:42px!important;display:block!important;position:absolute!important;pointer-events:auto!important;transform-origin:50% 50%!important;filter:drop-shadow(0 2px 3px rgba(0,0,0,.75))}.aircraft-icon img{width:100%!important;height:100%!important;display:block!important;object-fit:contain!important;overflow:visible!important}.aircraft-icon.is-selected img{filter:hue-rotate(205deg) saturate(1.35) brightness(1.15) drop-shadow(0 0 3px rgba(255,210,45,.95))}.traffic{width:max-content!important;min-width:0!important;max-width:calc(100% - 24px)!important;box-sizing:border-box!important}.traffic-row{grid-template-columns:max-content max-content max-content max-content max-content!important;white-space:nowrap!important;cursor:pointer!important}.traffic-row:hover{background:#2b333a!important}`;
+          style.textContent = `.aircraft-icon{width:42px!important;height:42px!important;display:block!important;position:absolute!important;pointer-events:auto!important;transform-origin:50% 50%!important;filter:drop-shadow(0 2px 3px rgba(0,0,0,.75))}.aircraft-icon img{width:100%!important;height:100%!important;display:block!important;object-fit:contain!important;overflow:visible!important}.aircraft-icon.is-selected img{filter:hue-rotate(205deg) saturate(1.35) brightness(1.15) drop-shadow(0 0 3px rgba(255,210,45,.95))}.traffic{width:max-content!important;min-width:0!important;max-width:calc(100% - 24px)!important;box-sizing:border-box!important}.traffic-row{grid-template-columns:max-content max-content max-content max-content max-content!important;white-space:nowrap!important;cursor:pointer!important}.traffic-row:hover{background:#2b333a!important}.card.windy-mode .map{z-index:4;background:transparent!important;pointer-events:none!important}.card.windy-mode .tiles,.card.windy-mode .overlay{display:none!important}.card.windy-mode .aircraft{pointer-events:auto!important}.card.windy-mode .trail-svg{display:block!important;pointer-events:none!important}.card.windy-mode .windy{z-index:3!important}`;
           root.appendChild(style);
         }
         const icons = [...root.querySelectorAll(".aircraft-icon")];
@@ -90,6 +87,34 @@
           icon.style.transform = `translate(-50%,-50%) rotate(${rotation}deg) scale(${modelScale(f)})`;
           icon.title = `${f.type || f.aircraft_code || "Aircraft"} · ${f.flight || f.callsign || f.registration || ""}`;
         });
+      };
+    }
+
+    // Keep the Windy iframe as the interactive weather-map layer while leaving
+    // the aircraft/trail layer above it. Aircraft remain clickable in Windy mode.
+    const originalSetMode = Card.prototype._setMode;
+    if (originalSetMode) {
+      Card.prototype._setMode = function (mode) {
+        originalSetMode.call(this, mode);
+        const card = this.shadowRoot?.querySelector(".card");
+        if (card) card.classList.toggle("windy-mode", mode === "WINDY");
+        this._drawMap();
+      };
+    }
+
+    // Ensure the trail is redrawn immediately after every aircraft update and
+    // after aircraft selection. The trail is intentionally accumulated locally;
+    // it becomes visible once at least two position samples are available.
+    const originalRecordTrails = Card.prototype._recordTrails;
+    if (originalRecordTrails) {
+      Card.prototype._recordTrails = function (flights) {
+        originalRecordTrails.call(this, flights);
+        if (this._selected && this._trailMinutes) {
+          const id = this._id?.(this._selected);
+          if (id && Array.isArray(this._trail?.[id]) && this._trail[id].length >= 2) {
+            requestAnimationFrame(() => this._drawMap());
+          }
+        }
       };
     }
 
