@@ -47,6 +47,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     loader_path = frontend_path / "card-loader.js"
     card_path = frontend_path / "flightradar-card.js"
     fix_path = frontend_path / "card-fix.js"
+    map_controls_path = frontend_path / "map-controls.js"
     assets_path = frontend_path / "assets"
     static_paths = []
     if loader_path.exists():
@@ -55,6 +56,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         static_paths.append(StaticPathConfig("/flightradar_card/flightradar-card.js", str(card_path), cache_headers=False))
     if fix_path.exists():
         static_paths.append(StaticPathConfig("/flightradar_card/card-fix.js", str(fix_path), cache_headers=False))
+    if map_controls_path.exists():
+        static_paths.append(StaticPathConfig("/flightradar_card/map-controls.js", str(map_controls_path), cache_headers=False))
     if assets_path.exists():
         static_paths.append(StaticPathConfig("/flightradar_card/assets", str(assets_path), cache_headers=False))
     if static_paths:
