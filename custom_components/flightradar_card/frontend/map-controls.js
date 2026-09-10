@@ -143,6 +143,14 @@
     };
 
     Card.__FLIGHTRADAR_MAP_CONTROLS__ = true;
+
+    // The card may have rendered before this helper was loaded. Initialise
+    // controls on any existing card instances now that the prototype is patched.
+    document.querySelectorAll("flightradar-card").forEach(card => {
+      try { card._enableMapControls(); } catch (error) {
+        console.warn("[FlightRadar Card] Map controls initialisation failed:", error);
+      }
+    });
   };
 
   if (customElements.get("flightradar-card")) boot();
