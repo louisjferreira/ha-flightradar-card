@@ -28,6 +28,9 @@
       const clampZoom = value => Math.max(3, Math.min(12, Number(value) || 7));
       const normalizeLon = lon => ((lon + 540) % 360) - 180;
       const projectCenter = () => this._project(this._map.centerLat, this._map.centerLon);
+      const isAircraftTarget = target => Boolean(
+        target?.closest?.(".aircraft-icon, .aircraft, [data-aircraft-id]")
+      );
 
       const panBy = (dx, dy) => {
         const center = startCenter || projectCenter();
@@ -74,9 +77,10 @@
       };
 
       map.addEventListener("pointerdown", event => {
-        // Aircraft markers own their click interaction. Do not capture the
-        // pointer for map dragging when the user starts on an aircraft.
-        if (event.target?.closest?.(".aircraft")) return;
+        // Aircraft markers must receive the complete pointer sequence so a
+        // click can select them. Never let the map capture the pointer when
+        // the gesture starts on an aircraft icon or its image.
+        if (isAircraftTarget(event.target)) return;
         if (event.pointerType === "mouse" && event.button !== 0) return;
         dragging = true;
         pointerId = event.pointerId;
