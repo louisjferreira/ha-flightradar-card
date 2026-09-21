@@ -128,49 +128,68 @@
         const rect = map.getBoundingClientRect();
         if (rect.width < 10 || rect.height < 10) return;
 
-        const center = this._project(this._map.centerLat, this._map.centerLon);
-        const left = center.x - rect.width / 2;
-        const top = center.y - rect.height / 2;
-
         map.querySelectorAll(".aircraft").forEach(e => e.remove());
+        map.querySelector(".airport-marker")?.remove();
 
-        if (this._mode === "FR24") {
-          this._flights.forEach(f => {
-            const q = this._project(Number(f.lat), Number(f.lon));
-            const x = q.x - left;
-            const y = q.y - top;
-            if (x < -60 || x > rect.width + 60 || y < -60 || y > rect.height + 60) return;
+        if (!this._mapLibreReady || !this._mapLibre) return;
 
-            const el = document.createElement("div");
-            const selected = this._selected && this._id(f) === this._id(this._selected);
-            el.className = "aircraft" + (selected ? " aircraft-selected" : "");
-            el.style.left = x + "px";
-            el.style.top = y + "px";
-            el.innerHTML = aircraftSvg(f, selected);
-            el.title = (f.flight || f.callsign || f.registration || f.hex || "Aircraft") +
-              " · " + (f.type || f.aircraft_code || "");
-            el.addEventListener("click", e => {
-              e.stopPropagation();
-              this._selectAircraft(f, false);
-            });
-            map.appendChild(el);
+        // MapLibre's project() returns pixel coordinates relative to the map
+        // container, so the aircraft stay geographically locked to the basemap.
+        this._flights.forEach(f => {
+          const lat = Number(f.lat);
+          const lon = Number(f.lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+          const p = this._mapLibre.project([lon, lat]);
+          if (p.x < -60 || p.x > rect.width + 60 || p.y < -60 || p.y > rect.height + 60) return;
+
+          const el = document.createElement("div");
+          const selected = this._selected && this._id(f) === this._id(this._selected);
+          el.className = "aircraft" + (selected ? " aircraft-selected" : "");
+          el.style.left = p.x + "px";
+          el.style.top = p.y + "px";
+          el.innerHTML = aircraftSvg(f, selected);
+          el.title = (f.flight || f.callsign || f.registration || f.hex || "Aircraft") +
+            " · " + (f.type || f.aircraft_code || "");
+          el.addEventListener("click", e => {
+            e.stopPropagation();
+            this._selectAircraft(f, false);
           });
+          map.appendChild(el);
+        });
 
-          const a = this._airport();
-          const ap = this._project(a.lat, a.lon);
-          map.querySelector(".airport-marker")?.remove();
-          if (ap.x - left >= -20 && ap.x - left <= rect.width + 20 &&
-              ap.y - top >= -20 && ap.y - top <= rect.height + 20) {
-            const mark = document.createElement("div");
-            mark.className = "airport airport-marker";
-            mark.style.left = ap.x - left + "px";
-            mark.style.top = ap.y - top + "px";
-            mark.title = a.code + " · " + a.name;
-            map.appendChild(mark);
-          }
+        const a = this._airport();
+        const ap = this._mapLibre.project([a.lon, a.lat]);
+        if (ap.x >= -20 && ap.x <= rect.width + 20 &&
+            ap.y >= -20 && ap.y <= rect.height + 20) {
+          const mark = document.createElement("div");
+          mark.className = "airport airport-marker";
+          mark.style.left = ap.x + "px";
+          mark.style.top = ap.y + "px";
+          mark.title = a.code + " · " + a.name;
+          map.appendChild(mark);
         }
 
-        if (typeof this._drawTrail === "function") this._drawTrail(rect, left, top);
+        const svg = this.shadowRoot.getElementById("trailSvg");
+        if (svg) {
+          svg.setAttribute("width", rect.width);
+          svg.setAttribute("height", rect.height);
+          svg.innerHTML = "";
+          if (this._selected && this._trailMinutes) {
+            const pts = this._trail[this._id(this._selected)] || [];
+            if (pts.length >= 2) {
+              const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+              let d = "";
+              pts.forEach((p, i) => {
+                const q = this._mapLibre.project([Number(p.lon), Number(p.lat)]);
+                d += (i ? "L" : "M") + q.x.toFixed(1) + " " + q.y.toFixed(1) + " ";
+              });
+              path.setAttribute("d", d);
+              path.setAttribute("class", "trail-line");
+              svg.appendChild(path);
+            }
+          }
+        }
       };
 
       if (!this._mapLibre) {
@@ -199,6 +218,18 @@
       }
 
       drawAircraft();
+    };
+
+    // Windy follows the airport, not the selected aircraft. Aircraft remain
+    // clickable overlays, but selecting one never changes the map centre.
+    Card.prototype._windyUrl = function () {
+      const a = this._airport();
+      return "https://embed.windy.com/embed.html?type=map&location=coordinates" +
+        "&metricRain=default&metricTemp=default&metricWind=kt" +
+        "&zoom=" + Math.max(5, Math.min(10, this._map.zoom)) +
+        "&overlay=wind&level=surface&lat=" + Number(a.lat).toFixed(4) +
+        "&lon=" + Number(a.lon).toFixed(4) +
+        "&menu=&message=&marker=true&calendar=now&pressure=";
     };
 
     const originalSetMode = Card.prototype._setMode;
