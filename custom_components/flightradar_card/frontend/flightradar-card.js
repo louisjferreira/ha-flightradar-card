@@ -1,7 +1,7 @@
 window.customCards = window.customCards || [];
 const CARD_VERSION = "1.1.0-dev";
 const TILE = 256;
-const OSM = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const OSM = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
 const AIRPORTS = {
  HRE:{code:"HRE",icao:"FVHA",name:"Robert Gabriel Mugabe International",lat:-17.9318,lon:31.0928},
  JNB:{code:"JNB",icao:"FAOR",name:"O.R. Tambo International",lat:-26.1337,lon:28.2420},
