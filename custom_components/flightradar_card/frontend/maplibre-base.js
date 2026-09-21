@@ -5,6 +5,38 @@
     const Card = customElements.get("flightradar-card");
     if (!Card || Card.__FLIGHTRADAR_MAPLIBRE__) return;
 
+    const mapLibreCss = `
+      .maplibre-base .maplibregl-map,
+      .maplibre-base .maplibregl-canvas-container,
+      .maplibre-base .maplibregl-canvas {
+        position:absolute !important;
+        inset:0 !important;
+        width:100% !important;
+        height:100% !important;
+      }
+      .maplibre-base .maplibregl-canvas { display:block !important; }
+      .maplibre-base .maplibregl-control-container {
+        position:absolute;
+        inset:0;
+        pointer-events:none;
+      }
+      .maplibre-base .maplibregl-ctrl-bottom-right {
+        position:absolute;
+        right:0;
+        bottom:0;
+        pointer-events:auto;
+      }
+      .maplibre-base .maplibregl-ctrl-attrib {
+        font:9px/1.2 Arial,sans-serif;
+        color:#333;
+        background:rgba(255,255,255,.78);
+        padding:2px 5px;
+        margin:0;
+        border-radius:3px 0 0 0;
+      }
+      .maplibre-base .maplibregl-ctrl-attrib a { color:#333; }
+    `;
+
     const ensureBase = host => {
       let base = host.querySelector(".maplibre-base");
       if (!base) {
@@ -22,42 +54,13 @@
         host.insertBefore(base, host.firstChild);
       }
 
-      if (!base.querySelector(":scope > style.maplibre-card-style")) {
-        const style = document.createElement("style");
-        style.className = "maplibre-card-style";
-        style.textContent = `
-          .maplibregl-map,
-          .maplibregl-canvas-container,
-          .maplibregl-canvas {
-            position:absolute !important;
-            inset:0 !important;
-            width:100% !important;
-            height:100% !important;
-          }
-          .maplibregl-canvas { display:block !important; }
-          .maplibregl-control-container {
-            position:absolute;
-            inset:0;
-            pointer-events:none;
-          }
-          .maplibregl-ctrl-bottom-right {
-            position:absolute;
-            right:0;
-            bottom:0;
-            pointer-events:auto;
-          }
-          .maplibregl-ctrl-attrib {
-            font:9px/1.2 Arial,sans-serif;
-            color:#333;
-            background:rgba(255,255,255,.78);
-            padding:2px 5px;
-            margin:0;
-            border-radius:3px 0 0 0;
-          }
-          .maplibregl-ctrl-attrib a { color:#333; }
-        `;
-        base.appendChild(style);
-      }
+      const cardStyle = thisStyle => {
+        if (thisStyle && !thisStyle.dataset.mapLibreCss) {
+          thisStyle.textContent += mapLibreCss;
+          thisStyle.dataset.mapLibreCss = "true";
+        }
+      };
+      cardStyle(host.getRootNode()?.querySelector?.("style"));
       return base;
     };
 
@@ -133,8 +136,6 @@
 
         if (!this._mapLibreReady || !this._mapLibre) return;
 
-        // MapLibre's project() returns pixel coordinates relative to the map
-        // container, so the aircraft stay geographically locked to the basemap.
         this._flights.forEach(f => {
           const lat = Number(f.lat);
           const lon = Number(f.lon);
@@ -220,8 +221,6 @@
       drawAircraft();
     };
 
-    // Windy follows the airport, not the selected aircraft. Aircraft remain
-    // clickable overlays, but selecting one never changes the map centre.
     Card.prototype._windyUrl = function () {
       const a = this._airport();
       return "https://embed.windy.com/embed.html?type=map&location=coordinates" +
