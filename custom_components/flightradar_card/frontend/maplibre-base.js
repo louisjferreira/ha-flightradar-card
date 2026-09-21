@@ -1,21 +1,11 @@
 /* MapLibre/OpenFreeMap basemap adapter for FlightRadar Card. */
 (async function () {
-  const version = "1.1.0-dev.5";
   try {
-    const mod = await import("https://unpkg.com/maplibre-gl@6.10.0/dist/maplibre-gl.mjs");
-    const maplibregl = mod;
+    const maplibregl = await import("https://unpkg.com/maplibre-gl@6.10.0/dist/maplibre-gl.mjs");
     const Card = customElements.get("flightradar-card");
     if (!Card || Card.__FLIGHTRADAR_MAPLIBRE__) return;
 
-    const originalDraw = Card.prototype._drawMap;
-    const originalSetMode = Card.prototype._setMode;
-
-    Card.prototype._initMapLibre = async function () {
-      if (this._mapLibre || this._mapLibreLoading) return this._mapLibre;
-      const host = this.shadowRoot?.querySelector(".map");
-      if (!host) return null;
-      this._mapLibreLoading = true;
-
+    const ensureBase = host => {
       let base = host.querySelector(".maplibre-base");
       if (!base) {
         base = document.createElement("div");
@@ -31,6 +21,52 @@
         });
         host.insertBefore(base, host.firstChild);
       }
+
+      if (!base.querySelector(":scope > style.maplibre-card-style")) {
+        const style = document.createElement("style");
+        style.className = "maplibre-card-style";
+        style.textContent = `
+          .maplibregl-map,
+          .maplibregl-canvas-container,
+          .maplibregl-canvas {
+            position:absolute !important;
+            inset:0 !important;
+            width:100% !important;
+            height:100% !important;
+          }
+          .maplibregl-canvas { display:block !important; }
+          .maplibregl-control-container {
+            position:absolute;
+            inset:0;
+            pointer-events:none;
+          }
+          .maplibregl-ctrl-bottom-right {
+            position:absolute;
+            right:0;
+            bottom:0;
+            pointer-events:auto;
+          }
+          .maplibregl-ctrl-attrib {
+            font:9px/1.2 Arial,sans-serif;
+            color:#333;
+            background:rgba(255,255,255,.78);
+            padding:2px 5px;
+            margin:0;
+            border-radius:3px 0 0 0;
+          }
+          .maplibregl-ctrl-attrib a { color:#333; }
+        `;
+        base.appendChild(style);
+      }
+      return base;
+    };
+
+    Card.prototype._initMapLibre = async function () {
+      if (this._mapLibre || this._mapLibreLoading) return this._mapLibre;
+      const host = this.shadowRoot?.querySelector(".map");
+      if (!host) return null;
+      this._mapLibreLoading = true;
+      const base = ensureBase(host);
 
       try {
         const airport = this._airport();
@@ -69,7 +105,6 @@
         });
 
         map.on("resize", () => this._drawMap());
-
         map.on("error", event => {
           if (event?.error) console.warn("[FlightRadar Card] MapLibre/OpenFreeMap:", event.error);
         });
@@ -84,31 +119,15 @@
       }
     };
 
-    Card.prototype._drawMap = function (initial = false) {
+    Card.prototype._drawMap = function () {
       const map = this.shadowRoot?.querySelector(".map");
       if (!map) return;
 
-      let base = map.querySelector(".maplibre-base");
-      if (!base) {
-        base = document.createElement("div");
-        base.className = "maplibre-base";
-        Object.assign(base.style, {
-          position: "absolute",
-          inset: "0",
-          width: "100%",
-          height: "100%",
-          zIndex: "1",
-          overflow: "hidden",
-          background: "#b7c2c6"
-        });
-        map.insertBefore(base, map.firstChild);
-      }
-
+      const base = ensureBase(map);
       const drawAircraft = () => {
         const rect = map.getBoundingClientRect();
         if (rect.width < 10 || rect.height < 10) return;
 
-        const z = Number(this._map?.zoom) || 7;
         const center = this._project(this._map.centerLat, this._map.centerLon);
         const left = center.x - rect.width / 2;
         const top = center.y - rect.height / 2;
@@ -160,11 +179,8 @@
       }
 
       if (this._mapLibreReady) {
-        const base = map.querySelector(".maplibre-base");
-        if (base) {
-          base.style.display = this._mode === "WINDY" ? "none" : "block";
-          base.style.pointerEvents = this._mode === "WINDY" ? "none" : "auto";
-        }
+        base.style.display = this._mode === "WINDY" ? "none" : "block";
+        base.style.pointerEvents = this._mode === "WINDY" ? "none" : "auto";
 
         this._mapLibreSyncing = true;
         try {
@@ -185,6 +201,7 @@
       drawAircraft();
     };
 
+    const originalSetMode = Card.prototype._setMode;
     Card.prototype._setMode = function (mode) {
       originalSetMode.call(this, mode);
       if (this._mapLibre) {
@@ -197,35 +214,7 @@
       }
     };
 
-    Card.prototype._destroyMapLibre = function () {
-      if (this._mapLibre) {
-        try { this._mapLibre.remove(); } catch (_) {}
-      }
-      this._mapLibre = null;
-      this._mapLibreReady = false;
-      this._mapLibreLoading = false;
-    };
-
     Card.__FLIGHTRADAR_MAPLIBRE__ = true;
-
-    const style = document.createElement("style");
-    style.textContent = `
-      .maplibre-base .maplibregl-map,
-      .maplibre-base .maplibregl-canvas-container,
-      .maplibre-base .maplibregl-canvas {
-        position: absolute !important;
-        inset: 0 !important;
-        width: 100% !important;
-        height: 100% !important;
-      }
-      .maplibre-base .maplibregl-canvas {
-        display: block !important;
-      }
-      .maplibre-base .maplibregl-control-container {
-        display: none !important;
-      }
-    `;
-    document.head.appendChild(style);
   } catch (error) {
     console.error("[FlightRadar Card] MapLibre adapter failed to load:", error);
   }
