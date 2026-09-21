@@ -1,251 +1,206 @@
-/* MapLibre/OpenFreeMap basemap adapter for FlightRadar Card. */
-(async function () {
-  try {
-    const maplibregl = await import("https://unpkg.com/maplibre-gl@6.10.0/dist/maplibre-gl.mjs");
-    const Card = customElements.get("flightradar-card");
-    if (!Card || Card.__FLIGHTRADAR_MAPLIBRE__) return;
+/* Waymorphic/OpenStreetMap vector basemap adapter for FlightRadar Card.
+ * Uses the provider's official iframe embed, avoiding a browser-side MapLibre
+ * dependency while keeping the card's own aircraft projection and controls.
+ */
+(function () {
+  const Card = customElements.get("flightradar-card");
+  if (!Card || Card.__FLIGHTRADAR_WAYMORPHIC__) return;
 
-    const mapLibreCss = `
-      .maplibre-base .maplibregl-map,
-      .maplibre-base .maplibregl-canvas-container,
-      .maplibre-base .maplibregl-canvas {
-        position:absolute !important;
-        inset:0 !important;
-        width:100% !important;
-        height:100% !important;
-      }
-      .maplibre-base .maplibregl-canvas { display:block !important; }
-      .maplibre-base .maplibregl-control-container {
-        position:absolute;
-        inset:0;
-        pointer-events:none;
-      }
-      .maplibre-base .maplibregl-ctrl-bottom-right {
-        position:absolute;
-        right:0;
-        bottom:0;
-        pointer-events:auto;
-      }
-      .maplibre-base .maplibregl-ctrl-attrib {
-        font:9px/1.2 Arial,sans-serif;
-        color:#333;
-        background:rgba(255,255,255,.78);
-        padding:2px 5px;
-        margin:0;
-        border-radius:3px 0 0 0;
-      }
-      .maplibre-base .maplibregl-ctrl-attrib a { color:#333; }
-    `;
+  const ensureBase = host => {
+    let base = host.querySelector(".maplibre-base");
+    if (!base) {
+      base = document.createElement("div");
+      base.className = "maplibre-base";
+      Object.assign(base.style, {
+        position: "absolute",
+        inset: "0",
+        width: "100%",
+        height: "100%",
+        zIndex: "1",
+        overflow: "hidden",
+        background: "#b7c2c6",
+        pointerEvents: "auto"
+      });
+      host.insertBefore(base, host.firstChild);
+    }
 
-    const ensureBase = host => {
-      let base = host.querySelector(".maplibre-base");
-      if (!base) {
-        base = document.createElement("div");
-        base.className = "maplibre-base";
-        Object.assign(base.style, {
-          position: "absolute",
-          inset: "0",
-          width: "100%",
-          height: "100%",
-          zIndex: "1",
-          overflow: "hidden",
-          background: "#b7c2c6"
-        });
-        host.insertBefore(base, host.firstChild);
-      }
+    let frame = base.querySelector("iframe.waymorphic-map");
+    if (!frame) {
+      frame = document.createElement("iframe");
+      frame.className = "waymorphic-map";
+      frame.title = "OpenStreetMap basemap";
+      frame.setAttribute("loading", "eager");
+      frame.setAttribute("referrerpolicy", "no-referrer-when-downgrade");
+      Object.assign(frame.style, {
+        position: "absolute",
+        inset: "0",
+        width: "100%",
+        height: "100%",
+        border: "0",
+        pointerEvents: "none"
+      });
+      base.appendChild(frame);
+    }
+    return { base, frame };
+  };
 
-      const cardStyle = thisStyle => {
-        if (thisStyle && !thisStyle.dataset.mapLibreCss) {
-          thisStyle.textContent += mapLibreCss;
-          thisStyle.dataset.mapLibreCss = "true";
-        }
-      };
-      cardStyle(host.getRootNode()?.querySelector?.("style"));
-      return base;
+  Card.prototype._waymorphicUrl = function () {
+    const a = this._airport();
+    const z = Math.max(3, Math.min(14, Number(this._map?.zoom) || 7));
+    return "https://map.waymorphic.com/#embed&style=liberty&map=" +
+      z + "/" + Number(this._map?.centerLat ?? a.lat).toFixed(5) +
+      "/" + Number(this._map?.centerLon ?? a.lon).toFixed(5);
+  };
+
+  Card.prototype._initWaymorphic = function () {
+    const host = this.shadowRoot?.querySelector(".map");
+    if (!host) return;
+    const { base, frame } = ensureBase(host);
+
+    if (frame.dataset.url !== this._waymorphicUrl()) {
+      frame.src = this._waymorphicUrl();
+      frame.dataset.url = frame.src;
+    }
+
+    // Never allow the embedded map to pan independently of the airport-centred
+    // card. Zoom is controlled by the card below.
+    frame.style.pointerEvents = "none";
+    base.style.pointerEvents = "auto";
+
+    if (base.dataset.controlsBound === "true") return;
+    base.dataset.controlsBound = "true";
+
+    const clampZoom = value => Math.max(3, Math.min(14, Number(value) || 7));
+    const update = () => {
+      const url = this._waymorphicUrl();
+      if (frame.dataset.url === url) return;
+      frame.src = url;
+      frame.dataset.url = frame.src;
     };
 
-    Card.prototype._initMapLibre = async function () {
-      if (this._mapLibre || this._mapLibreLoading) return this._mapLibre;
-      const host = this.shadowRoot?.querySelector(".map");
-      if (!host) return null;
-      this._mapLibreLoading = true;
-      const base = ensureBase(host);
+    base.addEventListener("wheel", event => {
+      event.preventDefault();
+      this._map.zoom = clampZoom(this._map.zoom + (event.deltaY < 0 ? 1 : -1));
+      update();
+      this._drawMap();
+    }, { passive: false });
 
-      try {
-        const airport = this._airport();
-        const map = new maplibregl.Map({
-          container: base,
-          style: "https://tiles.openfreemap.org/styles/liberty",
-          center: [airport.lon, airport.lat],
-          zoom: Number(this._map?.zoom) || 7,
-          attributionControl: true,
-          dragPan: false,
-          dragRotate: false,
-          pitchWithRotate: false,
-          touchPitch: false,
-          cooperativeGestures: false
-        });
+    base.addEventListener("dblclick", event => {
+      event.preventDefault();
+      this._map.zoom = clampZoom(this._map.zoom + 1);
+      update();
+      this._drawMap();
+    });
 
-        this._mapLibre = map;
-        map.dragPan.disable();
-        map.dragRotate.disable();
-        map.touchZoomRotate.enable();
-        map.doubleClickZoom.enable();
-        map.scrollZoom.enable();
-        map.boxZoom.disable();
-        map.keyboard.disable();
-
-        map.on("load", () => {
-          base.style.pointerEvents = this._mode === "WINDY" ? "none" : "auto";
-          this._mapLibreReady = true;
-          this._drawMap();
-        });
-
-        map.on("zoom", () => {
-          if (this._mapLibreSyncing) return;
-          this._map.zoom = Math.max(3, Math.min(12, map.getZoom()));
-          this._drawMap();
-        });
-
-        map.on("resize", () => this._drawMap());
-        map.on("error", event => {
-          if (event?.error) console.warn("[FlightRadar Card] MapLibre/OpenFreeMap:", event.error);
-        });
-
-        return map;
-      } catch (error) {
-        console.error("[FlightRadar Card] Failed to initialize MapLibre:", error);
-        this._mapLibre = null;
-        return null;
-      } finally {
-        this._mapLibreLoading = false;
+    let pinchDistance = null;
+    base.addEventListener("touchstart", event => {
+      if (event.touches.length >= 2) {
+        const a = event.touches[0], b = event.touches[1];
+        pinchDistance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
       }
-    };
+    }, { passive: true });
 
-    Card.prototype._drawMap = function () {
-      const map = this.shadowRoot?.querySelector(".map");
-      if (!map) return;
-
-      const base = ensureBase(map);
-      const drawAircraft = () => {
-        const rect = map.getBoundingClientRect();
-        if (rect.width < 10 || rect.height < 10) return;
-
-        map.querySelectorAll(".aircraft").forEach(e => e.remove());
-        map.querySelector(".airport-marker")?.remove();
-
-        if (!this._mapLibreReady || !this._mapLibre) return;
-
-        this._flights.forEach(f => {
-          const lat = Number(f.lat);
-          const lon = Number(f.lon);
-          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-
-          const p = this._mapLibre.project([lon, lat]);
-          if (p.x < -60 || p.x > rect.width + 60 || p.y < -60 || p.y > rect.height + 60) return;
-
-          const el = document.createElement("div");
-          const selected = this._selected && this._id(f) === this._id(this._selected);
-          el.className = "aircraft" + (selected ? " aircraft-selected" : "");
-          el.style.left = p.x + "px";
-          el.style.top = p.y + "px";
-          el.innerHTML = aircraftSvg(f, selected);
-          el.title = (f.flight || f.callsign || f.registration || f.hex || "Aircraft") +
-            " · " + (f.type || f.aircraft_code || "");
-          el.addEventListener("click", e => {
-            e.stopPropagation();
-            this._selectAircraft(f, false);
-          });
-          map.appendChild(el);
-        });
-
-        const a = this._airport();
-        const ap = this._mapLibre.project([a.lon, a.lat]);
-        if (ap.x >= -20 && ap.x <= rect.width + 20 &&
-            ap.y >= -20 && ap.y <= rect.height + 20) {
-          const mark = document.createElement("div");
-          mark.className = "airport airport-marker";
-          mark.style.left = ap.x + "px";
-          mark.style.top = ap.y + "px";
-          mark.title = a.code + " · " + a.name;
-          map.appendChild(mark);
-        }
-
-        const svg = this.shadowRoot.getElementById("trailSvg");
-        if (svg) {
-          svg.setAttribute("width", rect.width);
-          svg.setAttribute("height", rect.height);
-          svg.innerHTML = "";
-          if (this._selected && this._trailMinutes) {
-            const pts = this._trail[this._id(this._selected)] || [];
-            if (pts.length >= 2) {
-              const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-              let d = "";
-              pts.forEach((p, i) => {
-                const q = this._mapLibre.project([Number(p.lon), Number(p.lat)]);
-                d += (i ? "L" : "M") + q.x.toFixed(1) + " " + q.y.toFixed(1) + " ";
-              });
-              path.setAttribute("d", d);
-              path.setAttribute("class", "trail-line");
-              svg.appendChild(path);
-            }
-          }
-        }
-      };
-
-      if (!this._mapLibre) {
-        this._initMapLibre().then(() => this._drawMap());
-        return;
-      }
-
-      if (this._mapLibreReady) {
-        base.style.display = this._mode === "WINDY" ? "none" : "block";
-        base.style.pointerEvents = this._mode === "WINDY" ? "none" : "auto";
-
-        this._mapLibreSyncing = true;
-        try {
-          this._mapLibre.resize();
-          const targetZoom = Math.max(3, Math.min(12, Number(this._map.zoom) || 7));
-          const targetCenter = [Number(this._map.centerLon) || 0, Number(this._map.centerLat) || 0];
-          const current = this._mapLibre.getCenter();
-          if (Math.abs(this._mapLibre.getZoom() - targetZoom) > 0.001 ||
-              Math.abs(current.lng - targetCenter[0]) > 0.0001 ||
-              Math.abs(current.lat - targetCenter[1]) > 0.0001) {
-            this._mapLibre.jumpTo({center: targetCenter, zoom: targetZoom});
-          }
-        } finally {
-          this._mapLibreSyncing = false;
-        }
-      }
-
-      drawAircraft();
-    };
-
-    Card.prototype._windyUrl = function () {
-      const a = this._airport();
-      return "https://embed.windy.com/embed.html?type=map&location=coordinates" +
-        "&metricRain=default&metricTemp=default&metricWind=kt" +
-        "&zoom=" + Math.max(5, Math.min(10, this._map.zoom)) +
-        "&overlay=wind&level=surface&lat=" + Number(a.lat).toFixed(4) +
-        "&lon=" + Number(a.lon).toFixed(4) +
-        "&menu=&message=&marker=true&calendar=now&pressure=";
-    };
-
-    const originalSetMode = Card.prototype._setMode;
-    Card.prototype._setMode = function (mode) {
-      originalSetMode.call(this, mode);
-      if (this._mapLibre) {
-        const base = this.shadowRoot?.querySelector(".maplibre-base");
-        if (base) {
-          base.style.display = mode === "WINDY" ? "none" : "block";
-          base.style.pointerEvents = mode === "WINDY" ? "none" : "auto";
-        }
+    base.addEventListener("touchmove", event => {
+      if (event.touches.length < 2 || !pinchDistance) return;
+      event.preventDefault();
+      const a = event.touches[0], b = event.touches[1];
+      const distance = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+      if (distance > pinchDistance * 1.18 || distance < pinchDistance * 0.84) {
+        this._map.zoom = clampZoom(this._map.zoom + (distance > pinchDistance ? 1 : -1));
+        pinchDistance = distance;
+        update();
         this._drawMap();
       }
-    };
+    }, { passive: false });
 
-    Card.__FLIGHTRADAR_MAPLIBRE__ = true;
-  } catch (error) {
-    console.error("[FlightRadar Card] MapLibre adapter failed to load:", error);
-  }
+    const clearPinch = () => { pinchDistance = null; };
+    base.addEventListener("touchend", clearPinch, { passive: true });
+    base.addEventListener("touchcancel", clearPinch, { passive: true });
+  };
+
+  const originalDrawMap = Card.prototype._drawMap;
+  Card.prototype._drawMap = function () {
+    const map = this.shadowRoot?.querySelector(".map");
+    if (!map) return;
+
+    const { base } = ensureBase(map);
+    this._initWaymorphic();
+
+    // The old raster tile renderer must never be allowed to make requests.
+    const tiles = this.shadowRoot?.getElementById("tiles");
+    if (tiles) {
+      tiles.innerHTML = "";
+      tiles.style.display = "none";
+    }
+
+    if (this._mode === "WINDY") {
+      base.style.display = "none";
+    } else {
+      base.style.display = "block";
+    }
+
+    const rect = map.getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) return;
+
+    map.querySelectorAll(".aircraft").forEach(e => e.remove());
+    map.querySelector(".airport-marker")?.remove();
+
+    if (this._mode !== "FR24") {
+      if (typeof this._drawTrail === "function") this._drawTrail(rect, 0, 0);
+      return;
+    }
+
+    // The Waymorphic embed uses the standard Web Mercator projection. Reuse the
+    // card's exact same projection so aircraft remain geographically anchored.
+    const center = this._project(this._map.centerLat, this._map.centerLon);
+    const left = center.x - rect.width / 2;
+    const top = center.y - rect.height / 2;
+
+    this._flights.forEach(f => {
+      const lat = Number(f.lat), lon = Number(f.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+      const q = this._project(lat, lon);
+      const x = q.x - left, y = q.y - top;
+      if (x < -60 || x > rect.width + 60 || y < -60 || y > rect.height + 60) return;
+
+      const el = document.createElement("div");
+      const selected = this._selected && this._id(f) === this._id(this._selected);
+      el.className = "aircraft" + (selected ? " aircraft-selected" : "");
+      el.style.left = x + "px";
+      el.style.top = y + "px";
+      el.innerHTML = aircraftSvg(f, selected);
+      el.title = (f.flight || f.callsign || f.registration || f.hex || "Aircraft") +
+        " · " + (f.type || f.aircraft_code || "");
+      el.addEventListener("click", event => {
+        event.stopPropagation();
+        this._selectAircraft(f, false);
+      });
+      map.appendChild(el);
+    });
+
+    const airport = this._airport();
+    const ap = this._project(airport.lat, airport.lon);
+    if (ap.x - left >= -20 && ap.x - left <= rect.width + 20 &&
+        ap.y - top >= -20 && ap.y - top <= rect.height + 20) {
+      const marker = document.createElement("div");
+      marker.className = "airport airport-marker";
+      marker.style.left = ap.x - left + "px";
+      marker.style.top = ap.y - top + "px";
+      marker.title = airport.code + " · " + airport.name;
+      map.appendChild(marker);
+    }
+
+    if (typeof this._drawTrail === "function") this._drawTrail(rect, left, top);
+  };
+
+  const originalSetMode = Card.prototype._setMode;
+  Card.prototype._setMode = function (mode) {
+    originalSetMode.call(this, mode);
+    this._initWaymorphic();
+    const base = this.shadowRoot?.querySelector(".maplibre-base");
+    if (base) base.style.display = mode === "WINDY" ? "none" : "block";
+    this._drawMap();
+  };
+
+  Card.__FLIGHTRADAR_WAYMORPHIC__ = true;
 })();
